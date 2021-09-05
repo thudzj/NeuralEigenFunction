@@ -2,7 +2,6 @@ import math
 from functools import partial
 import itertools
 from timeit import default_timer as timer
-import warnings
 
 import matplotlib
 matplotlib.use('agg')
@@ -20,148 +19,37 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
 
-def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
-    """Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
-    Args:
-        :attr:`A` (Tensor):
-            The tensor to compute the Cholesky decomposition of
-        :attr:`upper` (bool, optional):
-            See torch.cholesky
-        :attr:`out` (Tensor, optional):
-            See torch.cholesky
-        :attr:`jitter` (float, optional):
-            The jitter to add to the diagonal of A in case A is only p.s.d. If omitted, chosen
-            as 1e-6 (float) or 1e-8 (double)
-    """
-    try:
-        L = torch.cholesky(A, upper=upper, out=out)
-        return L
-    except RuntimeError as e:
-        isnan = torch.isnan(A)
-        if isnan.any():
-            raise NanError(
-                f"cholesky_cpu: {isnan.sum().item()} of {A.numel()} elements of the {A.shape} tensor are NaN."
-            )
+from utils import nystrom, psd_safe_cholesky, rbf_kernel, \
+    polynomial_kernel, periodic_plus_rbf_kernel
 
-        if jitter is None:
-            jitter = 1e-6 if A.dtype == torch.float32 else 1e-8
-        Aprime = A.clone()
-        jitter_prev = 0
-        for i in range(5):
-            jitter_new = jitter * (10 ** i)
-            Aprime.diagonal(dim1=-2, dim2=-1).add_(jitter_new - jitter_prev)
-            jitter_prev = jitter_new
-            try:
-                L = torch.cholesky(Aprime, upper=upper, out=out)
-                warnings.warn(
-                    f"A not p.d., added jitter of {jitter_new} to the diagonal",
-                    RuntimeWarning,
-                )
-                return L
-            except RuntimeError:
-                continue
-        raise e
-
-def polynomial_kernel(degree, eta, nu, x1, x2=None):
-    if x2 is None:
-        x2 = x1
-    if x1.dim() == 1:
-        x1 = x1.unsqueeze(-1)
-    if x2.dim() == 1:
-        x2 = x2.unsqueeze(-1)
-    return ((x1.unsqueeze(1) * x2.unsqueeze(0)).sum(-1) * eta + nu) ** degree
-
-def sigmoid_kernel(eta, nu, x1, x2=None):
-    if x2 is None:
-        x2 = x1
-    if x1.dim() == 1:
-        x1 = x1.unsqueeze(-1)
-    if x2.dim() == 1:
-        x2 = x2.unsqueeze(-1)
-    return ((x1.unsqueeze(1) * x2.unsqueeze(0)).sum(-1) * eta + nu).tanh()
-
-def cosine_kernel(period, output_scale, length_scale, x1, x2=None):
-    if x2 is None:
-        x2 = x1
-    if x1.dim() == 1:
-        x1 = x1.unsqueeze(-1)
-    if x2.dim() == 1:
-        x2 = x2.unsqueeze(-1)
-    return (((x1.unsqueeze(1) - x2.unsqueeze(0))**2).sum(-1).sqrt() * math.pi / period / length_scale).cos() * output_scale
-
-def rbf_kernel(output_scale, length_scale, x1, x2=None):
-    if x2 is None:
-        x2 = x1
-    if x1.dim() == 1:
-        x1 = x1.unsqueeze(-1)
-    if x2.dim() == 1:
-        x2 = x2.unsqueeze(-1)
-    return (- ((x1.unsqueeze(1) - x2.unsqueeze(0))**2).sum(-1) / 2. / length_scale).exp() * output_scale
-
-def periodic_plus_rbf_kernel(period, output_scale1, length_scale1, output_scale2, length_scale2, x1, x2=None):
-    if x2 is None:
-        x2 = x1
-    if x1.dim() == 1:
-        x1 = x1.unsqueeze(-1)
-    if x2.dim() == 1:
-        x2 = x2.unsqueeze(-1)
-    out1 = (- (((x1.unsqueeze(1) - x2.unsqueeze(0)).abs().sum(-1) * math.pi / period).sin() ** 2) * 2. / length_scale1).exp() * output_scale1
-    out2 = (- ((x1.unsqueeze(1) - x2.unsqueeze(0))**2).sum(-1) / 2. / length_scale2).exp() * output_scale2
-    return out1 + out2
-
-
-class NeuralEigenFunctions(nn.Module):
-    def __init__(self, k, input_size, hidden_size, num_layers, output_size=1, bias=True, nonlinearity=nn.ReLU):
-        super(NeuralEigenFunctions, self).__init__()
-        self.functions = nn.ModuleList()
-
-        for i in range(k):
-            if num_layers == 1:
-                function = nn.Sequential(
-                    nn.Linear(input_size, output_size, bias=bias))
-            else:
-                layers = [nn.Linear(input_size, hidden_size, bias=bias),
-                          nonlinearity(),
-                          nn.Linear(hidden_size, output_size, bias=bias)]
-                for _ in range(num_layers - 2):
-                    layers.insert(2, nonlinearity())
-                    layers.insert(2, nn.Linear(hidden_size, hidden_size, bias=bias))
-                function = nn.Sequential(*layers)
-            self.functions.append(function)
+class PolynomialEigenFunctions(nn.Module):
+    def __init__(self, k, r):
+        super(PolynomialEigenFunctions, self).__init__()
+        self.register_parameter('w', nn.Parameter(torch.randn(r + 1, k) * 1e-3))
 
     def forward(self, x):
-        # return torch.cat([f(x) for f in self.functions], 1)
-        # out = torch.cat([f(x) for f in self.functions], 1); return out / out.norm(dim=0, keepdim=True).detach() * math.sqrt(x.shape[0])
-        return F.normalize(torch.cat([f(x) for f in self.functions], 1), dim=0)*math.sqrt(x.shape[0])
+        with torch.no_grad():
+            results = [torch.ones(x.shape[0], device=x.device)]
+            for _ in range(1, self.w.shape[0]):
+                results.append(results[-1] * x.squeeze())
+            results = torch.stack(results, 1)
+        results = results @ self.w
+        return F.normalize(results, dim=0)*math.sqrt(x.shape[0])
 
-def nystrom(X_for_nystrom, x_dim, x_range, k, kernel):
-
-    # perform nystrom method
-    start = timer()
-    K_for_nystrom = kernel(X_for_nystrom)
-    p, q = torch.symeig(K_for_nystrom, eigenvectors=True)
-    eigenvalues_nystrom = p[range(-1, -(k+1), -1)] / X_for_nystrom.shape[0]
-    eigenfuncs_nystrom = lambda x: kernel(x, X_for_nystrom) @ q[:, range(-1, -(k+1), -1)] \
-                                     / p[range(-1, -(k+1), -1)] * math.sqrt(X_for_nystrom.shape[0])
-    end = timer()
-    # print("Nystrom method consumes {}s".format(end - start))
-
-    return eigenvalues_nystrom, eigenfuncs_nystrom, end - start
-
-def our(X, x_dim, x_range, k, kernel):
+def our(X, x_dim, x_range, k, kernel, kernel_type):
     # hyper-parameters for our
-    input_size = x_dim
-    hidden_size = 32
-    num_layers = 3
-    optimizer_type = 'SGD'
+    # input_size = x_dim
+    # hidden_size = 32
+    # num_layers = 3
+    optimizer_type = 'Adam'
     lr = 1e-3
-    momentum = 0.9
-    nonlinearity = nn.GELU #nn.GELU #nn.Tanh # nn.Sigmoid, nn.ReLU
+    # momentum = 0.9
+    # nonlinearity = nn.GELU #nn.GELU #nn.Tanh # nn.Sigmoid, nn.ReLU
     riemannian_projection = False
     max_grad_norm = 10.
 
     num_iterations = 2000
-    num_samples = 100
+    num_samples = 256
     B = min(128, X.shape[0])
 
     K = kernel(X)
@@ -170,14 +58,15 @@ def our(X, x_dim, x_range, k, kernel):
 
     # perform our method
     start = timer()
-    nef = NeuralEigenFunctions(k, input_size, hidden_size, num_layers, nonlinearity=nonlinearity)
+    # nef = NeuralEigenFunctions(k, input_size, hidden_size, num_layers, nonlinearity=nonlinearity)
+    nef = PolynomialEigenFunctions(k, 5 if kernel_type != 'periodic_plus_rbf' else 10)
     if optimizer_type == 'Adam':
         optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
     elif optimizer_type == 'RMSprop':
         optimizer = torch.optim.RMSprop(nef.parameters(), lr=lr, momentum=momentum)
     else:
         optimizer = torch.optim.SGD(nef.parameters(), lr=lr, momentum=momentum)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
     eigenvalues_our = None
     for ite in range(num_iterations):
@@ -188,9 +77,21 @@ def our(X, x_dim, x_range, k, kernel):
 
         psis_X = nef(X_batch)
         with torch.no_grad():
-            K_batch_est = samples_batch.T @ samples_batch / num_samples
-            psis_K_psis = psis_X.T @ K_batch_est @ psis_X
-            grad = K_batch_est @ psis_X @ (torch.eye(k, device=psis_X.device) - (psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T)
+            # mu, shrinkage = 1, 0# oas(samples_batch)
+            # print(mu, shrinkage)
+            # print(mu, shrinkage)
+
+            # K_batch_est = samples_batch.T @ samples_batch / num_samples
+            samples_batch_psis = samples_batch @ psis_X
+            # tmp = psis_X.T @ K_batch_est @ psis_X
+            psis_K_psis = samples_batch_psis.T @ samples_batch_psis / num_samples
+            # psis_K_psis.mul_((1 - shrinkage)).add_(torch.eye(k, device=psis_X.device), alpha=mu * shrinkage)
+            # print(torch.dist(tmp, psis_K_psis))
+            # tmp = K_batch_est @ (psis_X @ (torch.eye(k, device=psis_X.device) - (psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T))
+            mask = torch.eye(k, device=psis_X.device) - (psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T
+            grad = samples_batch.T @ (samples_batch_psis @ mask / num_samples) # * ((1 - shrinkage) / num_samples)) \
+                  # + mu * shrinkage * psis_X @ mask
+            # print(torch.dist(tmp, grad))
 
             if eigenvalues_our is None:
                 eigenvalues_our = psis_K_psis.diag() / (B**2)
@@ -199,7 +100,7 @@ def our(X, x_dim, x_range, k, kernel):
 
             if riemannian_projection:
                 grad.sub_((psis_X*grad).sum(0) * psis_X)
-            grad.mul_(2. / (B**2))
+            # grad.mul_(2. / (B**2))
             clip_coef = max_grad_norm / (grad.norm(dim=0) + 1e-6)
             # tmp = grad.norm(dim=0)
             grad.mul_(clip_coef)
@@ -209,7 +110,7 @@ def our(X, x_dim, x_range, k, kernel):
         optimizer.zero_grad()
         psis_X.backward(-grad)
         optimizer.step()
-        scheduler.step()
+        # scheduler.step()
     end = timer()
     # print("Our method consumes {}s".format(end - start))
     return eigenvalues_our, nef, end - start
@@ -223,19 +124,19 @@ def plot_efs(ax, k, X_val, eigenfuncs_eval_nystrom, eigenfuncs_eval_our=None, k_
 
     sns.color_palette()
     for i in range(k_lines):
-        data = eigenfuncs_eval_nystrom[:, i] if eigenfuncs_eval_nystrom[:100, i].mean() > 0 else -eigenfuncs_eval_nystrom[:, i]
+        data = eigenfuncs_eval_nystrom[:, i] if eigenfuncs_eval_nystrom[1300:1400, i].mean() > 0 else -eigenfuncs_eval_nystrom[:, i]
         ax.plot(X_val.view(-1), data, alpha=1, label='Nyström $\hat\psi_{}$'.format(i+1))
 
     if eigenfuncs_eval_our is not None:
         plt.gca().set_prop_cycle(None)
         for i in range(k_lines):
-            data = eigenfuncs_eval_our[:, i] if eigenfuncs_eval_our[:100, i].mean() > 0 else -eigenfuncs_eval_our[:, i]
+            data = eigenfuncs_eval_our[:, i] if eigenfuncs_eval_our[1300:1400, i].mean() > 0 else -eigenfuncs_eval_our[:, i]
             ax.plot(X_val.view(-1), data, linestyle='dashdot', label='Our $\hat\psi_{}$'.format(i+1))
-
 
     # ax.set_xlim(0., 0.999)
     # ax.set_title('CIFAR10+SVHN Error vs Confidence')
-    # ax.set_xlabel(None)
+    ax.set_xlabel('x', fontsize=16)
+    ax.set_ylabel('y', fontsize=16)
     ax.set_xlim(xlim[0], xlim[1])
     ax.set_ylim(ylim[0], ylim[1])
     # ax.set_ylabel('CIFAR-10 Test Accuracy (%)', fontsize=16)
@@ -269,14 +170,16 @@ def main():
             kernel = partial(rbf_kernel, 1, 1)
             ylim = [-2., 2.]
         elif kernel_type == 'periodic_plus_rbf':
-            kernel = partial(periodic_plus_rbf_kernel, 3, 1, 1, 2, 1)
+            kernel = partial(periodic_plus_rbf_kernel, 1.5, 1, 1, 1, 1)
+            x_range = [-1., 1.]
             ylim = [-2., 2.]
         elif kernel_type == 'cosine':
             kernel = partial(cosine_kernel, 4, 1, 1)
             ylim = [-2., 2.]
         elif kernel_type == 'polynomial':
-            kernel = partial(polynomial_kernel, 4, 0.5, 1)
-            ylim = [-2., 2.]
+            kernel = partial(polynomial_kernel, 4, 1, 1.5)
+            x_range = [-1., 1.]
+            ylim = [-3., 3.]
         elif kernel_type == 'sigmoid':
             kernel = partial(sigmoid_kernel, 1, 2)
             x_range = [-1, 1]
@@ -286,15 +189,16 @@ def main():
 
         eigenvalues_nystrom_list, eigenfuncs_nystrom_list, cost_nystrom_list = [], [], []
         eigenvalues_our_list, nefs_our_list, cost_our_list = [], [], []
-        for N in [64, 256, 1024, 4096]:
+        NS = [64, 256, 1024, 4096]
+        for N in NS:
             X = torch.empty(N, x_dim).uniform_(x_range[0], x_range[1])
 
-            eigenvalues_nystrom, eigenfuncs_nystrom, c = nystrom(X, x_dim, x_range, k, kernel)
+            eigenvalues_nystrom, eigenfuncs_nystrom, c = nystrom(X, k, kernel)
             eigenvalues_nystrom_list.append(eigenvalues_nystrom)
             eigenfuncs_nystrom_list.append(eigenfuncs_nystrom)
             cost_nystrom_list.append(c)
 
-            eigenvalues_our, nef, c = our(X, x_dim, x_range, k, kernel)
+            eigenvalues_our, nef, c = our(X, x_dim, x_range, k, kernel, kernel_type)
             eigenvalues_our_list.append(eigenvalues_our)
             nefs_our_list.append(nef)
             cost_our_list.append(c)
@@ -339,7 +243,36 @@ def main():
         fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.1),
                    ncol=k * 2, fancybox=True, shadow=True, prop={'size':16})
         fig.tight_layout()
-        fig.savefig('eigen_funcs_comp_{}.pdf'.format(kernel_type), format='pdf', dpi=1000, bbox_inches='tight')
+        fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type), format='pdf', dpi=1000, bbox_inches='tight')
+
+
+        fig = plt.figure(figsize=(5, 4.5))
+        ax = fig.add_subplot(111)
+        ax.tick_params(axis='y', which='major', labelsize=12)
+        ax.tick_params(axis='y', which='minor', labelsize=12)
+        ax.tick_params(axis='x', which='major', labelsize=12)
+        ax.tick_params(axis='x', which='minor', labelsize=12)
+        # sns.color_palette()
+        ax.plot(range(1, len(NS) + 1), cost_nystrom_list, label='Nyström', color='k')
+        ax.plot(range(1, len(NS) + 1), cost_our_list, label='Our', linestyle='dashdot', color='k')
+        ax.set_xlim(1, len(NS) + 0.2)
+        ax.set_xticks(range(1, len(NS) + 1))
+        ax.set_xticklabels(NS)
+        # ax.set_ylim(ylim[0], ylim[1])
+        ax.set_xlabel('Sample size', fontsize=16)
+        ax.set_ylabel('Training time (s)', fontsize=16)
+        ax.spines['bottom'].set_color('gray')
+        ax.spines['top'].set_color('gray')
+        ax.spines['right'].set_color('gray')
+        ax.spines['left'].set_color('gray')
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
+        ax.set_axisbelow(True)
+        ax.grid(axis='y', color='lightgray', linestyle='--')
+        ax.grid(axis='x', color='lightgray', linestyle='--')
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig('toy_plots/time_comp_{}.pdf'.format(kernel_type), format='pdf', dpi=1000, bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
