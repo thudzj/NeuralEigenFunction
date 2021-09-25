@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 # Original code: https://github.com/TeaPearce/Bayesian_NN_Ensembles/blob/master/regression/module_gp.py
+import math
 import numpy as np
 import importlib
 import torch
-
+#
+# import neural_tangents as nt
+# from neural_tangents import stax
 
 class NNGPKernel:
 	def __init__(self, kernel_type, b_var_list=[1., 0.], w_var_list=[2., 1.]):
@@ -178,36 +181,39 @@ class NNGPKernel:
 		else:
 			raise NotImplementedError
 
-
 if __name__ == '__main__':
-	from utils import build_mlp_given_config, init_NN
+	test_mlp_nngpk = 1
+	if test_mlp_nngpk:
+		from utils import build_mlp_given_config, init_NN
 
-	w_var_list = [2., 2., 2.]
-	b_var_list = [1., 1., 1.]
-	X = torch.randn(128, 32)
-	X2 = torch.randn(64, 32)
-	for kernel_type in ['relu', 'lrelu0.2', 'erf']:
-		kernel = NNGPKernel(kernel_type=kernel_type, w_var_list=w_var_list, b_var_list=b_var_list)
+		w_var_list = [2., 2., 2.]
+		b_var_list = [1., 1., 1.]
+		X = torch.randn(128, 32)
+		X2 = torch.randn(64, 32)
+		for kernel_type in ['relu', 'lrelu0.2', 'erf']:
+			kernel = NNGPKernel(kernel_type=kernel_type, w_var_list=w_var_list, b_var_list=b_var_list)
 
-		k1_0 = kernel(X)
-		k2_0 = kernel(X, X2)
+			k1_0 = kernel(X)
+			k2_0 = kernel(X, X2)
 
-		model = build_mlp_given_config(nonlinearity=kernel_type, input_size=X.shape[-1], hidden_size=16, output_size=1, bias=True, num_layers=len(w_var_list))
-		# print(model)
+			model = build_mlp_given_config(nonlinearity=kernel_type, input_size=X.shape[-1], hidden_size=16, output_size=1, bias=True, num_layers=len(w_var_list))
+			# print(model)
 
-		samples = []
-		with torch.no_grad():
-			for _ in range(100000):
-				# if _ % 100 == 0:
-				# 	print(_)
-				init_NN(model, w_var_list, b_var_list)
-				samples.append(model(torch.cat([X, X2])))
-		samples = torch.cat(samples, -1)
-		k1_1 = samples[:X.shape[0]] @ samples[:X.shape[0]].T / samples.shape[-1]
-		k2_1 = samples[:X.shape[0]] @ samples[X.shape[0]:].T / samples.shape[-1]
+			samples = []
+			with torch.no_grad():
+				for _ in range(100000):
+					# if _ % 100 == 0:
+					# 	print(_)
+					init_NN(model, w_var_list, b_var_list)
+					samples.append(model(torch.cat([X, X2])))
+			samples = torch.cat(samples, -1)
+			k1_1 = samples[:X.shape[0]] @ samples[:X.shape[0]].T / samples.shape[-1]
+			k2_1 = samples[:X.shape[0]] @ samples[X.shape[0]:].T / samples.shape[-1]
 
-		# print(k1_0.shape, k1_1.shape)
-		print(k1_0[:5, :5], k1_1[:5, :5])
+			# print(k1_0.shape, k1_1.shape)
+			print(k1_0[:5, :5], k1_1[:5, :5])
 
-		print(torch.dist(k1_0, k1_1))
-		print(torch.dist(k2_0, k2_1))
+			print(torch.dist(k1_0, k1_1))
+			print(torch.dist(k2_0, k2_1))
+	else:
+		pass

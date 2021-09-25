@@ -29,224 +29,240 @@ from utils import nystrom, build_mlp_given_config, init_NN
 from nngpk import NNGPKernel
 
 class NeuralEigenFunctions(nn.Module):
-    def __init__(self, k, kernel_type, input_size, hidden_size, num_layers, output_size=1, bias=True):
-        super(NeuralEigenFunctions, self).__init__()
-        self.functions = nn.ModuleList()
-        for i in range(k):
-            function = build_mlp_given_config(nonlinearity=kernel_type,
-                                              input_size=input_size,
-                                              hidden_size=hidden_size,
-                                              output_size=output_size,
-                                              num_layers=num_layers,
-                                              bias=bias)
-            self.functions.append(function)
+	def __init__(self, k, kernel_type, input_size, hidden_size, num_layers, output_size=1, bias=True, momentum=0.9, normalize_over=[0]):
+		super(NeuralEigenFunctions, self).__init__()
+		self.momentum = momentum
+		self.normalize_over = normalize_over
+		self.functions = nn.ModuleList()
+		for i in range(k):
+			function = build_mlp_given_config(nonlinearity=kernel_type,
+											  input_size=input_size,
+											  hidden_size=hidden_size,
+											  output_size=output_size,
+											  num_layers=num_layers,
+											  bias=bias)
+			self.functions.append(function)
+		self.register_buffer('eigennorm', torch.zeros(k))
+		self.register_buffer('num_calls', torch.Tensor([0]))
 
-    def forward(self, x):
-        return F.normalize(torch.cat([f(x) for f in self.functions], 1), dim=0)*math.sqrt(x.shape[0])
+	def forward(self, x):
+		ret_raw = torch.cat([f(x) for f in self.functions], 1)
+		if self.training:
+			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
+			with torch.no_grad():
+				if self.num_calls == 0:
+					self.eigennorm.copy_(norm_.data)
+				else:
+					self.eigennorm.mul_(self.momentum).add_(norm_.data, alpha = 1-self.momentum)
+				self.num_calls += 1
+		else:
+			norm_ = self.eigennorm
+		return ret_raw / norm_
 
-def our(X, k, kernel, kernel_type, w_var_list, b_var_list):
-    # hyper-parameters for our
-    hidden_size = 32
-    num_layers = len(w_var_list)
-    optimizer_type = 'Adam'
-    lr = 1e-3
-    momentum = 0.9
-    riemannian_projection = False
-    max_grad_norm = 10.
-    num_iterations = 2000
-    num_samples = 10000
-    B = min(128, X.shape[0])
+def our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection, max_grad_norm):
+	# hyper-parameters for our
+	hidden_size = 32
+	num_layers = len(w_var_list)
+	optimizer_type = 'Adam'
+	lr = 1e-3
+	momentum = 0.9
+	num_iterations = 2000
+	num_samples = 10000
+	B = min(128, X.shape[0])
 
-    random_model =  build_mlp_given_config(nonlinearity=kernel_type,
-                                           input_size=X.shape[-1],
-                                           hidden_size=16,
-                                           output_size=1,
-                                           bias=True,
-                                           num_layers=len(w_var_list))
-    samples = []
-    with torch.no_grad():
-        for _ in range(num_samples):
-            init_NN(random_model, w_var_list, b_var_list)
-            samples.append(random_model(X))
-    samples = torch.cat(samples, -1).T
+	random_model =  build_mlp_given_config(nonlinearity=kernel_type,
+										   input_size=X.shape[-1],
+										   hidden_size=16,
+										   output_size=1,
+										   bias=True,
+										   num_layers=len(w_var_list))
+	samples = []
+	with torch.no_grad():
+		for _ in range(num_samples):
+			init_NN(random_model, w_var_list, b_var_list)
+			samples.append(random_model(X))
+	samples = torch.cat(samples, -1).T
 
-    # perform our method
-    start = timer()
-    nef = NeuralEigenFunctions(k, kernel_type, X.shape[-1], hidden_size, num_layers)
-    if optimizer_type == 'Adam':
-        optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
-    elif optimizer_type == 'RMSprop':
-        optimizer = torch.optim.RMSprop(nef.parameters(), lr=lr, momentum=momentum)
-    else:
-        optimizer = torch.optim.SGD(nef.parameters(), lr=lr, momentum=momentum)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
+	# perform our method
+	start = timer()
+	nef = NeuralEigenFunctions(k, kernel_type, X.shape[-1], hidden_size, num_layers)
+	if optimizer_type == 'Adam':
+		optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
+	elif optimizer_type == 'RMSprop':
+		optimizer = torch.optim.RMSprop(nef.parameters(), lr=lr, momentum=momentum)
+	else:
+		optimizer = torch.optim.SGD(nef.parameters(), lr=lr, momentum=momentum)
+	# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
-    eigenvalues_our = None
-    for ite in range(num_iterations):
-        idx = np.random.choice(X.shape[0], B, replace=False)
-        samples_batch = samples[:, idx]
-        X_batch = X[idx]
+	nef.train()
+	eigenvalues_our = None
+	for ite in range(num_iterations):
+		idx = np.random.choice(X.shape[0], B, replace=False)
+		samples_batch = samples[:, idx]
+		psis_X = nef(X[idx])
+		with torch.no_grad():
+			samples_batch_psis = samples_batch @ psis_X
+			psis_K_psis = samples_batch_psis.T @ samples_batch_psis / num_samples
+			mask = torch.eye(k, device=psis_X.device) - (psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T
+			grad = samples_batch.T @ (samples_batch_psis @ mask / num_samples)
 
-        psis_X = nef(X_batch)
-        with torch.no_grad():
-            samples_batch_psis = samples_batch @ psis_X
-            psis_K_psis = samples_batch_psis.T @ samples_batch_psis / num_samples
-            mask = torch.eye(k, device=psis_X.device) - (psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T
-            grad = samples_batch.T @ (samples_batch_psis @ mask / num_samples)
+			if eigenvalues_our is None:
+				eigenvalues_our = psis_K_psis.diag() / (B**2)
+			else:
+				eigenvalues_our.mul_(0.9).add_(psis_K_psis.diag() / (B**2), alpha = 0.1)
 
-            if eigenvalues_our is None:
-                eigenvalues_our = psis_K_psis.diag() / (B**2)
-            else:
-                eigenvalues_our.mul_(0.9).add_(psis_K_psis.diag() / (B**2), alpha = 0.1)
+			if riemannian_projection:
+				grad.sub_((psis_X*grad).sum(0) * psis_X / B)
 
-            if riemannian_projection:
-                grad.sub_((psis_X*grad).sum(0) * psis_X)
+			if max_grad_norm is not None:
+				clip_coef = max_grad_norm / (grad.norm(dim=0) + 1e-6)
+				grad.mul_(clip_coef)
 
-            clip_coef = max_grad_norm / (grad.norm(dim=0) + 1e-6)
-            grad.mul_(clip_coef)
-
-        optimizer.zero_grad()
-        psis_X.backward(-grad)
-        optimizer.step()
-        # scheduler.step()
-    end = timer()
-    # print("Our method consumes {}s".format(end - start))
-    return eigenvalues_our, nef, end - start
+		optimizer.zero_grad()
+		psis_X.backward(-grad)
+		optimizer.step()
+		# scheduler.step()
+	end = timer()
+	# print("Our method consumes {}s".format(end - start))
+	return eigenvalues_our, nef, end - start
 
 def main():
-    # set random seed
-    seed = 42
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+	# set random seed
+	seed = 42
+	random.seed(seed)
+	np.random.seed(seed)
+	torch.manual_seed(seed)
+	torch.backends.cudnn.deterministic = True
+	torch.backends.cudnn.benchmark = False
 
-    # setup the nngp kernel
-    kernel_type = 'erf'
-    w_var_list = [2., 2., 2.]
-    b_var_list = [1, 1, 1]
-
-
-    # general settings
-    num_alldata = 1000
-    k = 3
-    # dataset settings
-    dataset = 'two_moon'
-    if dataset == 'two_moon':
-        X, y = make_moons(num_alldata, noise=0.04, random_state=seed)
-        kernel_type = 'relu'
-        b_var_list = [0.01, 0.01, 0.01]
-    elif dataset == 'circles':
-        X, y = make_circles(num_alldata, noise=0.04, factor=0.5, random_state=seed)
-    else:
-        raise NotImplementedError
-
-    kernel = NNGPKernel(kernel_type=kernel_type, w_var_list=w_var_list, b_var_list=b_var_list)
-
-    X = StandardScaler().fit_transform(X)
-    # X_train, X_test, y_train, y_test = \
-    #     train_test_split(X, y, test_size=.2, random_state=seed)
-
-    x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
-    y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + 0.6
-
-    # for plotting decision boundaries
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.01),
-                         np.arange(y_min, y_max, 0.01))
-
-    X, xx, yy = torch.from_numpy(X).float(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
-    # X_train, X_test, y_train, y_test, xx, yy = torch.from_numpy(X_train).float(), torch.from_numpy(X_test).float(), \
-    #     torch.from_numpy(y_train).long(), torch.from_numpy(y_test).long(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
-
-    # plot the dataset
-    figure = plt.figure(figsize=(15, 5))
-    cm = plt.cm.RdBu
-    cm_bright = ListedColormap(['#FF0000', '#0000FF'])
-    ax = plt.subplot(1, 3, 1)
-    ax.set_title("Input data")
-    # Plot the training points
-    ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm_bright,
-               edgecolors='k')
-    # # Plot the testing points
-    # ax.scatter(X_test[:, 0], X_test[:, 1], c=y_test, cmap=cm_bright, alpha=0.6,
-    #            edgecolors='k')
-    ax.set_xlim(xx.min(), xx.max())
-    ax.set_ylim(yy.min(), yy.max())
-    # plt.setp( ax.get_xticklabels(), visible=False)
-    # plt.setp( ax.get_yticklabels(), visible=False)
-    # plt.setp( ax.get_zticklabels(), visible=False)
-    ax.set_xticks(())
-    ax.set_yticks(())
-    # ax.spines['bottom'].set_color('gray')
-    # ax.spines['top'].set_color('gray')
-    # ax.spines['right'].set_color('gray')
-    # ax.spines['left'].set_color('gray')
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.set_axisbelow(True)
+	# setup the nngp kernel
+	kernel_type = 'erf'
+	w_var_list = [2., 2., 2.]
+	b_var_list = [1, 1, 1]
 
 
-    eigenvalues_nystrom, eigenfuncs_nystrom, c_nystrom = nystrom(X, k, kernel)
-    eigenvalues_our, nef, c_our = our(X, k, kernel, kernel_type, w_var_list, b_var_list)
-    print("Eigenvalues estimated by nystrom method:")
-    print(eigenvalues_nystrom)
-    print("Eigenvalues estimated by our method:")
-    print(eigenvalues_our)
-    print("Time comparison {} vs. {}".format(c_nystrom, c_our))
+	# general settings
+	num_alldata = 1000
+	k = 3
+	riemannian_projection = False
+	max_grad_norm = None
+	# dataset settings
+	dataset = 'two_moon'
+	if dataset == 'two_moon':
+		X, y = make_moons(num_alldata, noise=0.04, random_state=seed)
+		kernel_type = 'relu'
+		b_var_list = [0.01, 0.01, 0.01]
+	elif dataset == 'circles':
+		X, y = make_circles(num_alldata, noise=0.04, factor=0.5, random_state=seed)
+	else:
+		raise NotImplementedError
 
-    with torch.no_grad():
-        X_projected_by_nystrom = eigenfuncs_nystrom(X)
-        X_projected_by_our = nef(X)
-        print(X_projected_by_nystrom[: 5])
-        print(X_projected_by_our[: 5])
+	kernel = NNGPKernel(kernel_type=kernel_type, w_var_list=w_var_list, b_var_list=b_var_list)
 
-    ax = figure.add_subplot(132, projection='3d')
-    ax.set_title("Projected by Nyström")
-    X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0]
-    X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
-    X_projected_by_nystrom_2 = X_projected_by_nystrom[:, 2]
-    ax.scatter3D(X_projected_by_nystrom_0, X_projected_by_nystrom_1, X_projected_by_nystrom_2, c=y, cmap=cm_bright,
-               edgecolors='k')
-    # ax.set_xticks(())
-    # ax.set_yticks(())
-    # ax.set_zticks(())
-    ax.grid(True)
-    plt.setp( ax.get_xticklabels(), visible=False)
-    plt.setp( ax.get_yticklabels(), visible=False)
-    plt.setp( ax.get_zticklabels(), visible=False)
+	X = StandardScaler().fit_transform(X)
+	# X_train, X_test, y_train, y_test = \
+	#     train_test_split(X, y, test_size=.2, random_state=seed)
 
-    ax = figure.add_subplot(133, projection='3d')
-    ax.set_title("Projected by ours")
-    X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else X_projected_by_our[:, 0]
-    X_projected_by_our_1 = -X_projected_by_our[:, 1] if dataset == 'two_moon' else X_projected_by_our[:, 1]
-    X_projected_by_our_2 = X_projected_by_our[:, 2]
-    ax.scatter(X_projected_by_our_0, X_projected_by_our_1, X_projected_by_our_2, c=y, cmap=cm_bright,
-               edgecolors='k')
-    # ax.set_xticks(())
-    # ax.set_yticks(())
-    # ax.set_zticks(())
-    ax.grid(True)
-    plt.setp( ax.get_xticklabels(), visible=False)
-    plt.setp( ax.get_yticklabels(), visible=False)
-    plt.setp( ax.get_zticklabels(), visible=False)
+	x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
+	y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + 0.6
 
-    figure.tight_layout()
-    figure.savefig('nngp_plots/{}.pdf'.format(dataset), format='pdf', dpi=1000, bbox_inches='tight')
+	# for plotting decision boundaries
+	xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.01),
+						 np.arange(y_min, y_max, 0.01))
 
-    # K_recon_by_nystrom = eigenfuncs_eval_nystrom @ torch.diag(eigenvalues_nystrom) @ eigenfuncs_eval_nystrom.T
-    # K_recon_by_our = eigenfuncs_eval_our @ torch.diag(eigenvalues_our) @ eigenfuncs_eval_our.T
-    # K_gd = kernel(X_val)
-    # print("F norm between K and K_recon_by_nystrom:")
-    # print(torch.linalg.norm(K_recon_by_nystrom - K_gd))
-    # print("F norm between K and K_recon_by_our:")
-    # print(torch.linalg.norm(K_recon_by_our - K_gd))
+	X, xx, yy = torch.from_numpy(X).float(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
+	# X_train, X_test, y_train, y_test, xx, yy = torch.from_numpy(X_train).float(), torch.from_numpy(X_test).float(), \
+	#     torch.from_numpy(y_train).long(), torch.from_numpy(y_test).long(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
 
-    # dimension reduction and classification
+	# plot the dataset
+	figure = plt.figure(figsize=(15, 5))
+	cm = plt.cm.RdBu
+	cm_bright = ListedColormap(['#FF0000', '#0000FF'])
+	ax = plt.subplot(1, 3, 1)
+	ax.set_title("Input data")
+	# Plot the training points
+	ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm_bright,
+			   edgecolors='k')
+	# # Plot the testing points
+	# ax.scatter(X_test[:, 0], X_test[:, 1], c=y_test, cmap=cm_bright, alpha=0.6,
+	#            edgecolors='k')
+	ax.set_xlim(xx.min(), xx.max())
+	ax.set_ylim(yy.min(), yy.max())
+	# plt.setp( ax.get_xticklabels(), visible=False)
+	# plt.setp( ax.get_yticklabels(), visible=False)
+	# plt.setp( ax.get_zticklabels(), visible=False)
+	ax.set_xticks(())
+	ax.set_yticks(())
+	# ax.spines['bottom'].set_color('gray')
+	# ax.spines['top'].set_color('gray')
+	# ax.spines['right'].set_color('gray')
+	# ax.spines['left'].set_color('gray')
+	ax.spines['right'].set_visible(False)
+	ax.spines['top'].set_visible(False)
+	ax.spines['left'].set_visible(False)
+	ax.spines['bottom'].set_visible(False)
+	ax.set_axisbelow(True)
 
-    # todo data noise
+
+	eigenvalues_nystrom, eigenfuncs_nystrom, c_nystrom = nystrom(X, k, kernel)
+	eigenvalues_our, nef, c_our = our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection, max_grad_norm)
+	print("Eigenvalues estimated by nystrom method:")
+	print(eigenvalues_nystrom)
+	print("Eigenvalues estimated by our method:")
+	print(eigenvalues_our)
+	print("Time comparison {} vs. {}".format(c_nystrom, c_our))
+
+	nef.eval()
+	with torch.no_grad():
+		X_projected_by_nystrom = eigenfuncs_nystrom(X)
+		X_projected_by_our = nef(X)
+		print(X_projected_by_nystrom[: 5])
+		print(X_projected_by_our[: 5])
+
+	ax = figure.add_subplot(132, projection='3d')
+	ax.set_title("Projected by Nyström")
+	X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0]
+	X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
+	X_projected_by_nystrom_2 = X_projected_by_nystrom[:, 2]
+	ax.scatter3D(X_projected_by_nystrom_0, X_projected_by_nystrom_1, X_projected_by_nystrom_2, c=y, cmap=cm_bright,
+			   edgecolors='k')
+	# ax.set_xticks(())
+	# ax.set_yticks(())
+	# ax.set_zticks(())
+	ax.grid(True)
+	plt.setp( ax.get_xticklabels(), visible=False)
+	plt.setp( ax.get_yticklabels(), visible=False)
+	plt.setp( ax.get_zticklabels(), visible=False)
+
+	ax = figure.add_subplot(133, projection='3d')
+	ax.set_title("Projected by ours")
+	X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else X_projected_by_our[:, 0]
+	X_projected_by_our_1 = -X_projected_by_our[:, 1] if dataset == 'two_moon' else X_projected_by_our[:, 1]
+	X_projected_by_our_2 = X_projected_by_our[:, 2]
+	ax.scatter(X_projected_by_our_0, X_projected_by_our_1, X_projected_by_our_2, c=y, cmap=cm_bright,
+			   edgecolors='k')
+	# ax.set_xticks(())
+	# ax.set_yticks(())
+	# ax.set_zticks(())
+	ax.grid(True)
+	plt.setp( ax.get_xticklabels(), visible=False)
+	plt.setp( ax.get_yticklabels(), visible=False)
+	plt.setp( ax.get_zticklabels(), visible=False)
+
+	figure.tight_layout()
+	figure.savefig('nngp_plots/{}_{}_{}.pdf'.format(dataset, riemannian_projection, max_grad_norm), format='pdf', dpi=1000, bbox_inches='tight')
+
+	# K_recon_by_nystrom = eigenfuncs_eval_nystrom @ torch.diag(eigenvalues_nystrom) @ eigenfuncs_eval_nystrom.T
+	# K_recon_by_our = eigenfuncs_eval_our @ torch.diag(eigenvalues_our) @ eigenfuncs_eval_our.T
+	# K_gd = kernel(X_val)
+	# print("F norm between K and K_recon_by_nystrom:")
+	# print(torch.linalg.norm(K_recon_by_nystrom - K_gd))
+	# print("F norm between K and K_recon_by_our:")
+	# print(torch.linalg.norm(K_recon_by_our - K_gd))
+
+	# dimension reduction and classification
+
+	# todo data noise
 
 if __name__ == '__main__':
-    main()
+	main()

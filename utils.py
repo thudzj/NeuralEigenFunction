@@ -1,7 +1,12 @@
 import warnings
 import math
+import os
+import time
 from timeit import default_timer as timer
 from functools import partial
+
+import numpy as np
+from sklearn import metrics
 
 import torch
 import torch.nn as nn
@@ -9,6 +14,25 @@ import torch.nn.functional as F
 
 import torchvision
 import torchvision.transforms as transforms
+
+import cnn_gp
+try:
+	import jax
+	import neural_tangents as nt
+except:
+	print("Jax and neural_tangents not found")
+
+from mpl_toolkits import mplot3d
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+plt.rcParams.update({'figure.max_open_warning': 0})
+plt.rcParams['font.family'] = 'Times New Roman'
+plt.rcParams.update({'font.size': 16})
+from matplotlib.colors import ListedColormap
+import pandas as pd
+import seaborn as sns
+sns.set(style="darkgrid")
 
 def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
 	"""Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
@@ -83,11 +107,13 @@ def cosine_kernel(period, output_scale, length_scale, x1, x2=None):
 def rbf_kernel(output_scale, length_scale, x1, x2=None):
 	if x2 is None:
 		x2 = x1
-	if x1.dim() == 1:
-		x1 = x1.unsqueeze(-1)
-	if x2.dim() == 1:
-		x2 = x2.unsqueeze(-1)
-	return (- ((x1.unsqueeze(1) - x2.unsqueeze(0))**2).sum(-1) / 2. / length_scale).exp() * output_scale
+	# if x1.dim() == 1:
+	# 	x1 = x1.unsqueeze(-1)
+	# if x2.dim() == 1:
+	# 	x2 = x2.unsqueeze(-1)
+	#
+	# (x1 ** 2).sum(-1).view(-1, 1) + (x2 ** 2).sum(-1).view(1, -1) - 2 * x1 @ x2.T
+	return (- ((x1 ** 2).sum(-1).view(-1, 1) + (x2 ** 2).sum(-1).view(1, -1) - 2 * x1 @ x2.T) / 2. / length_scale).exp() * output_scale
 
 def periodic_plus_rbf_kernel(period, output_scale1, length_scale1, output_scale2, length_scale2, x1, x2=None):
 	if x2 is None:
@@ -189,6 +215,163 @@ def init_NN(model, w_var_list, b_var_list):
 			nn.init.constant_(m.running_mean, 0)
 			nn.init.constant_(m.running_var, 1)
 
+class ConvNet(nn.Module):
+	def __init__(self, arch, hs, input_size, output_size):
+		super(ConvNet, self).__init__()
+		self.arch = arch
+		self.input_size = input_size
+		self.output_size = output_size
+
+		if self.arch == 'convnet1':
+			self.model = torch.nn.Sequential(
+				nn.Conv2d(in_channels=input_size[0], out_channels=hs[0], kernel_size=3, stride=2, padding=1),
+				nn.BatchNorm2d(hs[0]),
+				nn.ReLU(inplace=True),
+				nn.Conv2d(in_channels=hs[0], out_channels=hs[1], kernel_size=3, stride=2, padding=0),
+				nn.BatchNorm2d(hs[1]),
+				nn.ReLU(inplace=True),
+				nn.Conv2d(in_channels=hs[1], out_channels=hs[2], kernel_size=6, stride=1, padding=0),
+				nn.BatchNorm2d(hs[2]),
+				nn.ReLU(inplace=True),
+				nn.Conv2d(in_channels=hs[2], out_channels=output_size, kernel_size=1, stride=1, padding=0),
+				# nn.Conv2d(in_channels=input_size[0], out_channels=hs[0], kernel_size=1, stride=1, padding=0),
+				# nn.ReLU(inplace=True),
+				# nn.Conv2d(in_channels=hs[0], out_channels=hs[1], kernel_size=1, stride=1, padding=0),
+				# nn.ReLU(inplace=True),
+				# nn.Conv2d(in_channels=hs[1], out_channels=hs[2], kernel_size=1, stride=1, padding=0),
+				# nn.ReLU(inplace=True),
+				# nn.Conv2d(in_channels=hs[2], out_channels=output_size, kernel_size=1, stride=1, padding=0),
+			)
+		elif self.arch == 'convnet2':
+			self.model = torch.nn.Sequential(
+				nn.Conv2d(in_channels=input_size[0], out_channels=hs[0], kernel_size=3, padding=1),
+				nn.BatchNorm2d(hs[0]),
+				nn.ReLU(), nn.MaxPool2d(2),
+				nn.Conv2d(in_channels=hs[0], out_channels=hs[1], kernel_size=3),
+				nn.BatchNorm2d(hs[1]),
+				nn.ReLU(), nn.MaxPool2d(2),
+				nn.Flatten(1),
+				nn.Linear(hs[1]*6*6, hs[2]), nn.ReLU(),
+				nn.Linear(hs[2], output_size)
+			)
+		elif self.arch == 'convnet3':
+			self.model = torch.nn.Sequential(
+				nn.Conv2d(in_channels=input_size[0], out_channels=hs[0], kernel_size=3, padding=1),
+				nn.BatchNorm2d(hs[0]),
+				nn.ReLU(), nn.MaxPool2d(2),
+				nn.Conv2d(in_channels=hs[0], out_channels=hs[1], kernel_size=3),
+				nn.BatchNorm2d(hs[1]),
+				nn.ReLU(), nn.MaxPool2d(2),
+				nn.Conv2d(in_channels=hs[1], out_channels=hs[2], kernel_size=3),
+				nn.BatchNorm2d(hs[2]),
+				nn.ReLU(), nn.MaxPool2d(2),
+				nn.Flatten(1),
+				nn.Linear(hs[2]*2*2, output_size)
+			)
+		else:
+			raise NotImplementedError
+
+	def forward(self, x):
+		return self.model(x.view(-1, *self.input_size)).view(x.shape[0], -1)
+
+class ConvNetNT:
+	def __init__(self, arch, hs, output_size):
+		super(ConvNetNT, self).__init__()
+		self.arch = arch
+		self.output_size = output_size
+
+		if self.arch == 'convnet1':
+			from jax.experimental import stax
+			import functools
+			# from neural_tangents import stax
+			Conv = functools.partial(stax.GeneralConv, ('NCHW', 'OIHW', 'NCHW'))
+			init_fn, f = stax.serial(
+			   Conv(hs[0], (3, 3), strides=(2,2), padding='SAME'),
+			   stax.Relu,
+			   Conv(hs[1], (3, 3), strides=(2,2)),
+			   stax.Relu,
+			   Conv(hs[2], (6, 6), strides=(1,1)),
+			   stax.Relu,
+			   Conv(output_size, (1, 1)),
+			   stax.Flatten
+			)
+			self.init_fn = init_fn
+			self.f = f
+			self.kernel_fn = None #kernel_fn
+
+		elif self.arch == 'convnet2':
+			from jax.experimental import stax
+			import functools
+			Conv = functools.partial(stax.GeneralConv, ('NCHW', 'OIHW', 'NCHW'))
+			init_fn, f = stax.serial(
+			   Conv(hs[0], (3, 3), padding='SAME'),
+			   stax.Relu,
+			   stax.MaxPool((2, 2), strides=(2,2), spec='NCHW'),
+			   Conv(hs[1], (3, 3)),
+			   stax.Relu,
+			   stax.MaxPool((2, 2), strides=(2,2), spec='NCHW'),
+			   stax.Flatten,
+			   stax.Dense(hs[2]),
+			   stax.Relu,
+			   stax.Dense(output_size),
+			)
+			self.init_fn = init_fn
+			self.f = f
+			self.kernel_fn = None
+		else:
+			raise NotImplementedError
+
+		self.emp_ntk_fn = nt.empirical_ntk_fn(self.f, trace_axes=(-1,),
+		                                      vmap_axes=0, implementation=1)
+		self.params = None
+
+	def random_init(self, input_size, seed=1):
+		_, params = self.init_fn(jax.random.PRNGKey(1), input_size)
+		self.params = params
+
+	def ntk(self, x1, x2):
+		if self.kernel_fn is None:
+			return None
+		else:
+			return self.kernel_fn(x1, x2, 'ntk')
+
+	def emp_ntk(self, x1, x2):
+		if self.params is None:
+			return None
+		else:
+			return self.emp_ntk_fn(x1, x2, self.params)
+
+
+
+class ConvNetKernel(nn.Module):
+	def __init__(self, arch, input_size, w_var, b_var):
+		super(ConvNetKernel, self).__init__()
+		self.arch = arch
+		self.input_size = input_size
+
+		if self.arch == 'convnet1':
+			self.model = cnn_gp.Sequential(
+				cnn_gp.Conv2d(kernel_size=3, stride=2, padding=1, var_weight=w_var, var_bias=b_var),
+				cnn_gp.ReLU(),
+				cnn_gp.Conv2d(kernel_size=3, stride=2, padding=0, var_weight=w_var, var_bias=b_var),
+				cnn_gp.ReLU(),
+				cnn_gp.Conv2d(kernel_size=6, padding=0, var_weight=w_var, var_bias=b_var),
+				cnn_gp.ReLU(),
+				cnn_gp.Conv2d(kernel_size=1, padding=0, var_weight=w_var, var_bias=b_var),
+				# cnn_gp.Conv2d(kernel_size=1, stride=1, padding=0, var_weight=w_var, var_bias=b_var),
+				# cnn_gp.ReLU(),
+				# cnn_gp.Conv2d(kernel_size=1, stride=1, padding=0, var_weight=w_var, var_bias=b_var),
+				# cnn_gp.ReLU(),
+				# cnn_gp.Conv2d(kernel_size=1, padding=0, var_weight=w_var, var_bias=b_var),
+				# cnn_gp.ReLU(),
+				# cnn_gp.Conv2d(kernel_size=1, padding=0, var_weight=w_var, var_bias=b_var),
+			)
+		else:
+			raise NotImplementedError
+
+	def forward(self, x, x2=None):
+		# print(x.shape, x.view(-1, *self.input_size).shape, x2)
+		return self.model(x.view(-1, *self.input_size), None if x2 is None else x2.view(-1, *self.input_size))
 
 def data_transform(x):
 	return x.flatten().mul_(2).sub_(1)
@@ -232,3 +415,350 @@ def load_mnist(args):
 											  pin_memory=True)
 	args.input_size = 784
 	return train_loader, test_loader
+
+
+def dataset_with_indices(cls):
+	"""
+	Modifies the given Dataset class to return a tuple data, target, index
+	instead of just data, target.
+	"""
+
+	def __getitem__(self, index):
+		data, target = cls.__getitem__(self, index)
+		return data, target, index
+
+	return type(cls.__name__, (cls,), {
+		'__getitem__': __getitem__,
+	})
+
+
+def load_cifar(args):
+	if args.dataset == 'cifar10':
+		mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+		dataset = torchvision.datasets.CIFAR10
+	elif args.dataset == 'cifar100':
+		mean, std = [x / 255 for x in [129.3, 124.1, 112.4]], [x / 255 for x in [68.2, 65.4, 70.4]]
+		dataset = torchvision.datasets.CIFAR100
+
+	normalize = transforms.Normalize(mean=mean, std=std)
+
+	train_loader = torch.utils.data.DataLoader(
+		dataset(root=args.data_dir, train=True,
+		transform=transforms.Compose([
+			transforms.RandomHorizontalFlip(),
+			transforms.RandomCrop(32, 4),
+			transforms.ToTensor(),
+			normalize,
+		]), download=True),
+		batch_size=args.batch_size, shuffle=True,
+		num_workers=args.workers, pin_memory=True)
+
+	nef_collect_train_loader = torch.utils.data.DataLoader(
+		dataset(root=args.data_dir, train=True,
+		transform=transforms.Compose([
+			transforms.ToTensor(),
+			normalize,
+		]), download=True),
+		batch_size=args.nef_batch_size_collect, shuffle=False,
+		num_workers=args.workers, pin_memory=True)
+
+	nef_train_loader = torch.utils.data.DataLoader(
+		dataset_with_indices(dataset)(root=args.data_dir, train=True,
+		transform=transforms.Compose([
+			transforms.ToTensor(),
+			normalize,
+		]), download=True),
+		batch_size=args.nef_batch_size, shuffle=True,
+		num_workers=args.workers, pin_memory=True)
+
+	val_loader = torch.utils.data.DataLoader(
+		dataset(root=args.data_dir, train=False,
+		transform=transforms.Compose([
+			transforms.ToTensor(),
+			normalize,
+		]), download=True),
+		batch_size=args.batch_size, shuffle=False,
+		num_workers=args.workers, pin_memory=True)
+
+	ood_loader = torch.utils.data.DataLoader(
+		torchvision.datasets.SVHN(root=args.data_dir, split='test',
+		transform=transforms.Compose([
+			transforms.ToTensor(),
+			normalize,
+		]), download=True),
+		batch_size=args.batch_size, shuffle=False,
+		num_workers=args.workers, pin_memory=True)
+
+	return train_loader, nef_collect_train_loader, nef_train_loader, val_loader, ood_loader, 10 if args.dataset == 'cifar10' else 100
+
+class _ECELoss(torch.nn.Module):
+	def __init__(self, n_bins=15):
+		"""
+		n_bins (int): number of confidence interval bins
+		"""
+		super(_ECELoss, self).__init__()
+		bin_boundaries = torch.linspace(0, 1, n_bins + 1)
+		self.bin_lowers = bin_boundaries[:-1]
+		self.bin_uppers = bin_boundaries[1:]
+
+		bin_boundaries_plot = torch.linspace(0, 1, 11)
+		self.bin_lowers_plot = bin_boundaries_plot[:-1]
+		self.bin_uppers_plot = bin_boundaries_plot[1:]
+
+	def forward(self, confidences, predictions, labels, title=None):
+		accuracies = predictions.eq(labels)
+		ece = torch.zeros(1, device=confidences.device)
+		for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
+			# Calculated |confidence - accuracy| in each bin
+			in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
+			prop_in_bin = in_bin.float().mean()
+			if prop_in_bin.item() > 0:
+				accuracy_in_bin = accuracies[in_bin].float().mean()
+				avg_confidence_in_bin = confidences[in_bin].mean()
+				ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+
+		accuracy_in_bin_list = []
+		for bin_lower, bin_upper in zip(self.bin_lowers_plot, self.bin_uppers_plot):
+			in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
+			prop_in_bin = in_bin.float().mean()
+			accuracy_in_bin = 0
+			if prop_in_bin.item() > 0:
+				accuracy_in_bin = accuracies[in_bin].float().mean().item()
+			accuracy_in_bin_list.append(accuracy_in_bin)
+
+		if title:
+			fig = plt.figure(figsize=(8,6))
+			p1 = plt.bar(np.arange(10) / 10., accuracy_in_bin_list, 0.1, align = 'edge', edgecolor ='black')
+			p2 = plt.plot([0,1], [0,1], '--', color='gray')
+
+			plt.ylabel('Accuracy', fontsize=18)
+			plt.xlabel('Confidence', fontsize=18)
+			#plt.title(title)
+			plt.xticks(np.arange(0, 1.01, 0.2), fontsize=12)
+			plt.yticks(np.arange(0, 1.01, 0.2), fontsize=12)
+			plt.xlim(left=0,right=1)
+			plt.ylim(bottom=0,top=1)
+			plt.grid(True)
+			#plt.legend((p1[0], p2[0]), ('Men', 'Women'))
+			plt.text(0.1, 0.83, 'ECE: {:.4f}'.format(ece.item()), fontsize=18)
+			fig.tight_layout()
+			plt.savefig(title, format='pdf', dpi=600, bbox_inches='tight')
+
+		return ece
+
+def binary_classification_given_uncertainty(uncs_id, uncs_ood, file_name, reverse=False):
+	y = np.concatenate([np.zeros((uncs_id.shape[0],)), np.ones((uncs_ood.shape[0],))])
+	if reverse:
+		y = 1 - y
+	x = torch.cat([uncs_id, uncs_ood]).data.cpu().numpy()
+	fpr, tpr, thresholds = metrics.roc_curve(y, x)
+	auroc = metrics.auc(fpr, tpr)
+
+	fig = plt.figure(figsize=(5, 4))
+	ax = fig.add_subplot(1, 1, 1)
+	sns.kdeplot(uncs_id.data.cpu().numpy(), shade=True, color="r", label='In-distribution')
+	sns.kdeplot(uncs_ood.data.cpu().numpy(), shade=True, color="b", label='Out-of-distribution')
+	ax.text(0.3, 0.7, 'AUROC: {:.4f}'.format(auroc), fontsize=18, transform=ax.transAxes)
+	plt.savefig(file_name, format='pdf', dpi=600, bbox_inches='tight')
+
+	print("\tAUROC is {:.4f}".format(auroc))
+	return auroc
+
+def fuse_single_conv_bn_pair(block1, block2):
+    if isinstance(block1, nn.BatchNorm2d) and isinstance(block2, nn.Conv2d):
+        m = block1
+        conv = block2
+
+        bn_st_dict = m.state_dict()
+        conv_st_dict = conv.state_dict()
+
+        # BatchNorm params
+        eps = m.eps
+        mu = bn_st_dict['running_mean']
+        var = bn_st_dict['running_var']
+        gamma = bn_st_dict['weight']
+
+        if 'bias' in bn_st_dict:
+            beta = bn_st_dict['bias']
+        else:
+            beta = torch.zeros(gamma.size(0)).float().to(gamma.device)
+
+        # Conv params
+        W = conv_st_dict['weight']
+        if 'bias' in conv_st_dict:
+            bias = conv_st_dict['bias']
+        else:
+            bias = torch.zeros(W.size(0)).float().to(gamma.device)
+
+        denom = torch.sqrt(var + eps)
+        b = beta - gamma.mul(mu).div(denom)
+        A = gamma.div(denom)
+        bias *= A
+        A = A.expand_as(W.transpose(0, -1)).transpose(0, -1)
+
+        W.mul_(A)
+        bias.add_(b)
+
+        conv.weight.data.copy_(W)
+
+        if conv.bias is None:
+            conv.bias = torch.nn.Parameter(bias)
+        else:
+            conv.bias.data.copy_(bias)
+
+        return conv
+
+    else:
+        return False
+
+def fuse_bn_recursively(model):
+    previous_name = None
+
+    for module_name in model._modules:
+        previous_name = module_name if previous_name is None else previous_name # Initialization
+
+        conv_fused = fuse_single_conv_bn_pair(model._modules[module_name], model._modules[previous_name])
+        if conv_fused:
+            model._modules[previous_name] = conv_fused
+            model._modules[module_name] = nn.Identity()
+
+        if len(model._modules[module_name]._modules) > 0:
+            fuse_bn_recursively(model._modules[module_name])
+
+        previous_name = module_name
+
+    return model
+
+def load_imagenet(args):
+	# Data loading code
+	traindir = os.path.join(args.data, 'train')
+	valdir = os.path.join(args.data, 'val')
+	normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+									 std=[0.229, 0.224, 0.225])
+
+	train_dataset = torchvision.datasets.ImageFolder(
+		traindir,
+		transforms.Compose([
+			transforms.RandomResizedCrop(224),
+			transforms.RandomHorizontalFlip(),
+			transforms.ToTensor(),
+			normalize,
+		]))
+	idx = np.array(train_dataset.targets) < args.num_classes
+	train_dataset.samples = [s for i, s in enumerate(train_dataset.samples) if idx[i]]
+	train_dataset.targets = [s[1] for s in train_dataset.samples]
+
+	train_dataset_noaug = torchvision.datasets.ImageFolder(
+		traindir,
+		transforms.Compose([
+			transforms.Resize(256),
+			transforms.CenterCrop(224),
+			transforms.ToTensor(),
+			normalize,
+		]))
+	idx = np.array(train_dataset_noaug.targets) < args.num_classes
+	train_dataset_noaug.samples = [s for i, s in enumerate(train_dataset_noaug.samples) if idx[i]]
+	train_dataset_noaug.targets = [s[1] for s in train_dataset_noaug.samples]
+
+	train_dataset_noaug_with_indices = dataset_with_indices(torchvision.datasets.ImageFolder)(
+		traindir,
+		transforms.Compose([
+			transforms.Resize(256),
+			transforms.CenterCrop(224),
+			transforms.ToTensor(),
+			normalize,
+		]))
+	idx = np.array(train_dataset_noaug_with_indices.targets) < args.num_classes
+	train_dataset_noaug_with_indices.samples = [s for i, s in enumerate(train_dataset_noaug_with_indices.samples) if idx[i]]
+	train_dataset_noaug_with_indices.targets = [s[1] for s in train_dataset_noaug_with_indices.samples]
+
+	train_loader = torch.utils.data.DataLoader(
+		train_dataset, batch_size=args.batch_size, shuffle=True,
+		num_workers=args.workers, pin_memory=True)
+	train_loader_no_aug = torch.utils.data.DataLoader(
+		train_dataset_noaug, batch_size=args.batch_size, shuffle=False,
+		num_workers=args.workers, pin_memory=True)
+	train_loader_no_aug_with_indices = torch.utils.data.DataLoader(
+		train_dataset_noaug_with_indices, batch_size=args.nef_batch_size, shuffle=True,
+		num_workers=args.workers, pin_memory=True)
+
+	val_dataset = torchvision.datasets.ImageFolder(
+		valdir,
+		transforms.Compose([
+			transforms.Resize(256),
+			transforms.CenterCrop(224),
+			transforms.ToTensor(),
+			normalize,
+		]))
+	idx = np.array(val_dataset.targets) < args.num_classes
+	val_dataset.samples = [s for i, s in enumerate(val_dataset.samples) if idx[i]]
+	val_dataset.targets = [s[1] for s in val_dataset.samples]
+
+	val_loader = torch.utils.data.DataLoader(
+		val_dataset, batch_size=args.batch_size, shuffle=False,
+		num_workers=args.workers, pin_memory=True)
+
+	print('# of training data:', len(train_dataset.samples),
+		  '\n# of testing data:', len(val_dataset.samples),
+		  '\ntraining classes:', train_dataset.classes[:args.num_classes])
+	return train_loader, train_loader_no_aug, train_loader_no_aug_with_indices, val_loader
+
+def time_string():
+  ISOTIMEFORMAT='%Y-%m-%d %X'
+  string = '[{}]'.format(time.strftime( ISOTIMEFORMAT, time.gmtime(time.time()) ))
+  return string
+
+def convert_secs2time(epoch_time):
+  need_hour = int(epoch_time / 3600)
+  need_mins = int((epoch_time - 3600*need_hour) / 60)
+  need_secs = int(epoch_time - 3600*need_hour - 60*need_mins)
+  return need_hour, need_mins, need_secs
+
+if __name__ == '__main__':
+	import random
+	import numpy as np
+	random.seed(0)
+	np.random.seed(0)
+	torch.manual_seed(0)
+	if torch.cuda.is_available():
+		torch.cuda.manual_seed(0)
+		torch.cuda.manual_seed_all(0)
+		device = torch.device('cuda')
+	else:
+		device = torch.device('cpu')
+
+	X = torch.randn(128, 784).cuda()
+	X2 = torch.randn(64, 784).cuda()
+
+	# from nngpk import NNGPKernel
+	# kernel = NNGPKernel(kernel_type='relu', w_var_list=[2.,2.,2.,2.], b_var_list=[0.01,0.01,0.01,0.01])
+	# k1_m = kernel(X)
+	# k2_m = kernel(X, X2)
+
+	kernel = ConvNetKernel('convnet1', [1, 28, 28], 2., 0.01).cuda()
+	k1_0 = kernel(X)
+	k2_0 = kernel(X, X2)
+
+	# print(k1_0[:5, :5], k1_m[:5, :5], k1_0.shape, k1_m.shape)
+
+	# print(torch.dist(k1_0, k1_m))
+	# print(torch.dist(k2_0, k2_m))
+
+	random_model = ConvNet('convnet1', [16, 16, 16], input_size=[1, 28, 28], output_size=1).cuda()
+	random_model.eval()
+	samples = []
+	with torch.no_grad():
+		with torch.cuda.amp.autocast(False): # this is important!!! Debug for one whole day!!!
+			for _ in range(10000):
+				# if _ % 50 == 0:
+				# 	print("Have obtained {} samples of the ConvNet kernel".format(_))
+				init_NN(random_model, 2., 0.01)
+				samples.append(random_model(torch.cat([X, X2])))
+		samples = torch.cat(samples, -1)
+		# print(samples.shape)
+	k1_1 = samples[:X.shape[0]] @ samples[:X.shape[0]].T / samples.shape[-1]
+	k2_1 = samples[:X.shape[0]] @ samples[X.shape[0]:].T / samples.shape[-1]
+
+	print(k1_0[:5, :5], k1_1[:5, :5], k1_0.shape, k1_1.shape)
+	print(torch.dist(k1_0, k1_1))
+	print(torch.dist(k2_0, k2_1))
