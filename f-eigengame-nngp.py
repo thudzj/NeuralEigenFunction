@@ -9,7 +9,7 @@ matplotlib.use('agg')
 import matplotlib.pyplot as plt
 plt.rcParams.update({'figure.max_open_warning': 0})
 plt.rcParams['font.family'] = 'Times New Roman'
-plt.rcParams.update({'font.size': 16})
+plt.rcParams.update({'font.size': 18})
 from matplotlib.colors import ListedColormap
 import pandas as pd
 import seaborn as sns
@@ -175,10 +175,10 @@ def main():
 	#     torch.from_numpy(y_train).long(), torch.from_numpy(y_test).long(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
 
 	# plot the dataset
-	figure = plt.figure(figsize=(15, 5))
+	figure = plt.figure(figsize=(15, 4.5))
 	cm = plt.cm.RdBu
 	cm_bright = ListedColormap(['#FF0000', '#0000FF'])
-	ax = plt.subplot(1, 3, 1)
+	ax = figure.add_subplot(131)
 	ax.set_title("Input data")
 	# Plot the training points
 	ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm_bright,
@@ -220,7 +220,7 @@ def main():
 		print(X_projected_by_our[: 5])
 
 	ax = figure.add_subplot(132, projection='3d')
-	ax.set_title("Projected by Nyström")
+	ax.set_title("Projected by Nyström method")
 	X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0]
 	X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
 	X_projected_by_nystrom_2 = X_projected_by_nystrom[:, 2]
@@ -235,7 +235,7 @@ def main():
 	plt.setp( ax.get_zticklabels(), visible=False)
 
 	ax = figure.add_subplot(133, projection='3d')
-	ax.set_title("Projected by ours")
+	ax.set_title("Projected by our method")
 	X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else X_projected_by_our[:, 0]
 	X_projected_by_our_1 = -X_projected_by_our[:, 1] if dataset == 'two_moon' else X_projected_by_our[:, 1]
 	X_projected_by_our_2 = X_projected_by_our[:, 2]

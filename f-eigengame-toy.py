@@ -8,7 +8,7 @@ matplotlib.use('agg')
 import matplotlib.pyplot as plt
 plt.rcParams.update({'figure.max_open_warning': 0})
 plt.rcParams['font.family'] = 'Times New Roman'
-plt.rcParams.update({'font.size': 14})
+plt.rcParams.update({'font.size': 18})
 import pandas as pd
 import seaborn as sns
 
@@ -139,18 +139,18 @@ def plot_efs(ax, k, X_val, eigenfuncs_eval_nystrom, eigenfuncs_eval_our=None, k_
 	sns.color_palette()
 	for i in range(k_lines):
 		data = eigenfuncs_eval_nystrom[:, i] if eigenfuncs_eval_nystrom[1300:1400, i].mean() > 0 else -eigenfuncs_eval_nystrom[:, i]
-		ax.plot(X_val.view(-1), data, alpha=1, label='Nyström $\hat\psi_{}$'.format(i+1))
+		ax.plot(X_val.view(-1), data, alpha=1, label='$\hat\psi_{}$ (Nyström)'.format(i+1))
 
 	if eigenfuncs_eval_our is not None:
 		plt.gca().set_prop_cycle(None)
 		for i in range(k_lines):
 			data = eigenfuncs_eval_our[:, i] if eigenfuncs_eval_our[1300:1400, i].mean() > 0 else -eigenfuncs_eval_our[:, i]
-			ax.plot(X_val.view(-1), data, linestyle='dashdot', label='Our $\hat\psi_{}$'.format(i+1))
+			ax.plot(X_val.view(-1), data, linestyle='dashdot', label='$\hat\psi_{}$ (our)'.format(i+1))
 
 	# ax.set_xlim(0., 0.999)
 	# ax.set_title('CIFAR10+SVHN Error vs Confidence')
-	ax.set_xlabel('x', fontsize=16)
-	ax.set_ylabel('y', fontsize=16)
+	ax.set_xlabel('x')
+	ax.set_ylabel('y')
 	ax.set_xlim(xlim[0], xlim[1])
 	ax.set_ylim(ylim[0], ylim[1])
 	# ax.set_ylabel('CIFAR-10 Test Accuracy (%)', fontsize=16)
@@ -181,7 +181,7 @@ def main():
 	k = 3
 	riemannian_projection = False
 	max_grad_norm = None
-	for kernel_type in ['rbf', 'polynomial', 'periodic_plus_rbf']: #
+	for kernel_type in ['rbf', 'polynomial']: #
 		if kernel_type == 'rbf':
 			kernel = partial(rbf_kernel, 1, 1)
 			ylim = [-2., 2.]
@@ -273,8 +273,8 @@ def main():
 		ax.set_xticks(range(1, len(NS) + 1))
 		ax.set_xticklabels(NS)
 		# ax.set_ylim(ylim[0], ylim[1])
-		ax.set_xlabel('Sample size', fontsize=16)
-		ax.set_ylabel('Training time (s)', fontsize=16)
+		ax.set_xlabel('Sample size')
+		ax.set_ylabel('Training time (s)')
 		ax.spines['bottom'].set_color('gray')
 		ax.spines['top'].set_color('gray')
 		ax.spines['right'].set_color('gray')

@@ -32,7 +32,7 @@ plt.rcParams.update({'font.size': 16})
 from matplotlib.colors import ListedColormap
 import pandas as pd
 import seaborn as sns
-sns.set(style="darkgrid")
+# sns.set(style="darkgrid")
 
 def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
 	"""Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
