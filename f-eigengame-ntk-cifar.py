@@ -9,12 +9,17 @@ CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-pl
 
 
 CUDA_VISIBLE_DEVICES=7 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32-10cls --ntk-std-scale 20 (--nef-resume snapshots/resnet20-ntk-bs256-ip32-10cls/nef_checkpoint_199.th)
-	Number of parameters: 269034
-	        Test set: Average loss: 0.3568, Accuracy: 0.9193
-	/data/zhijie/NeuralEigenFunction/utils.py:72: RuntimeWarning: A not p.d., added jitter of 1e-06 to the diagonal
-	  RuntimeWarning,
-	        Test set: Average loss: 0.3567, Accuracy: 0.9193  ECE: 0.0487
-	        Test set: Average loss: 0.2767, Accuracy: 0.9200  ECE: 0.0162
+	Test set: Average loss: 0.3567, Accuracy: 0.9193  ECE: 0.0487
+	Test set: Average loss: 0.2767, Accuracy: 0.9200  ECE: 0.0162
+CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet32 --job-id resnet32-ntk-bs256-ip32-10cls --ntk-std-scale 20
+	Test set: Average loss: 0.3696, Accuracy: 0.9205  ECE: 0.0515
+    Test set: Average loss: 0.2611, Accuracy: 0.9202  ECE: 0.0113
+CUDA_VISIBLE_DEVICES=3 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet56 --job-id resnet56-ntk-bs256-ip32-10cls --ntk-std-scale 20
+	Test set: Average loss: 0.3358, Accuracy: 0.9245  ECE: 0.0496
+    Test set: Average loss: 0.2342, Accuracy: 0.9238  ECE: 0.0118
+CUDA_VISIBLE_DEVICES=4 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet110 --job-id resnet110-ntk-bs256-ip32-10cls --ntk-std-scale 20
+	Test set: Average loss: 0.3454, Accuracy: 0.9284  ECE: 0.0463
+    Test set: Average loss: 0.2414, Accuracy: 0.9283  ECE: 0.0101
 '''
 import argparse
 import os
@@ -156,7 +161,7 @@ def main():
 
 	classifier = eval(args.clf_arch)(args.clf_in_planes, 10 if args.dataset == 'cifar10' else 100)
 	# load pre-trained ckpt
-	checkpoint = torch.load('snapshots/{}-cc-swalr0.1/checkpoint_150.th'.format(args.clf_arch), map_location='cpu') # to 150
+	checkpoint = torch.load('snapshots/{}-cc-swalr0.1/checkpoint_150.th'.format(args.clf_arch), map_location='cpu')
 	classifier.load_state_dict(checkpoint['state_dict'])
 
 	if args.num_classes == 2:
@@ -169,37 +174,37 @@ def main():
 	print("Number of parameters:", num_params)
 	validate(args, val_loader, classifier)
 
-	# ground_truth_NTK, ground_truth_NTK_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
-	# NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
-	# print("---------", 'ground truth NTK on training data', "---------")
-	# print(ground_truth_NTK[:10, :10].data.numpy())
-	# print("---------", 'NTK estimated by sampling on training data', "---------")
-	# print((NTK_samples[:, :10].T @ NTK_samples[:, :10] / args.num_samples).data.cpu().numpy())
-	#
-	# scale_ = ((NTK_samples/math.sqrt(args.num_samples)).norm(dim=0)**2).mean().item()
-	# NTK_samples /= math.sqrt(scale_)
-	# ground_truth_NTK /= scale_
-	# ground_truth_NTK_val /= scale_
-	#
-	# print('Distance between gd NTK and estimated NTK: noise {}, eps {}, scale {}, dist {}'.format(
-	# 	args.random_dist_type, args.epsilon, scale_,
-	# 	torch.dist(ground_truth_NTK[:100, :100],
-	# 			   NTK_samples[:, :100].T @ NTK_samples[:, :100] / args.num_samples).item()))
+	ground_truth_NTK, ground_truth_NTK_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
+	NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
+	print("---------", 'ground truth NTK on training data', "---------")
+	print(ground_truth_NTK[:10, :10].data.numpy())
+	print("---------", 'NTK estimated by sampling on training data', "---------")
+	print((NTK_samples[:, :10].T @ NTK_samples[:, :10] / args.num_samples).data.cpu().numpy())
+
+	scale_ = ((NTK_samples/math.sqrt(args.num_samples)).norm(dim=0)**2).mean().item()
+	NTK_samples /= math.sqrt(scale_)
+	ground_truth_NTK /= scale_
+	ground_truth_NTK_val /= scale_
+
+	print('Distance between gd NTK and estimated NTK: noise {}, eps {}, scale {}, dist {}'.format(
+		args.random_dist_type, args.epsilon, scale_,
+		torch.dist(ground_truth_NTK[:100, :100],
+				   NTK_samples[:, :100].T @ NTK_samples[:, :100] / args.num_samples).item()))
 
 	nef = NeuralEigenFunctions(args.nef_k, args.nef_arch, args.nef_in_planes, args.num_classes, args.nef_no_bn, args.nef_share).cuda()
-	# eigenvalues = train_nef(
-	# 	args, nef, NTK_samples, nef_train_loader,
-	# 	args.nef_k, args.nef_epochs, args.nef_optimizer_type,
-	# 	args.nef_lr, args.nef_momentum,
-	# 	args.nef_riemannian_projection,
-	# 	args.nef_max_grad_norm, args.nef_amp,
-	# 	nef_train_val_loader, val_loader, ground_truth_NTK_val)
-	#
-	# if args.draw_eigenvalues:
-	# 	draw_eigenvalues(args, eigenvalues, NTK_samples)
+	eigenvalues = train_nef(
+		args, nef, NTK_samples, nef_train_loader,
+		args.nef_k, args.nef_epochs, args.nef_optimizer_type,
+		args.nef_lr, args.nef_momentum,
+		args.nef_riemannian_projection,
+		args.nef_max_grad_norm, args.nef_amp,
+		nef_train_val_loader, val_loader, ground_truth_NTK_val)
 
-	nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
-	eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
+	if args.draw_eigenvalues:
+		draw_eigenvalues(args, eigenvalues, NTK_samples)
+
+	# nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
+	# eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
 
 	if args.num_classes == 2:
 		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood)

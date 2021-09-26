@@ -2,7 +2,7 @@
 [3441, 50000, 10]
 
 
-CUDA_VISIBLE_DEVICES=6 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet20-cc-swalr0.1 --clf-arch resnet20 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet20-cc-swalr0.1 --nef-amp
+CUDA_VISIBLE_DEVICES=0 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet20-cc-swalr0.1 --clf-arch resnet20 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet20-cc-swalr0.1
 	Performance of classifier
         On in-distribution test data
         Test set: Average loss: 0.3567, Accuracy: 0.9194, ECE: 0.0486
@@ -23,16 +23,16 @@ CUDA_VISIBLE_DEVICES=6 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         AUROC is 0.9528
 	Performance of classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.2967, Accuracy: 0.9200, ECE: 0.0293
+        Test set: Average loss: 0.2956, Accuracy: 0.9196, ECE: 0.0291
         On out-of-distribution test data
-        Test set: Average loss: 9.9205, Accuracy: 0.1093, ECE: 0.7100
-        AUROC is 0.8186
+        Test set: Average loss: 9.9792, Accuracy: 0.1093, ECE: 0.7136
+        AUROC is 0.8143
 	Performance of swa classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.2234, Accuracy: 0.9260, ECE: 0.0075
+        Test set: Average loss: 0.2229, Accuracy: 0.9256, ECE: 0.0079
         On out-of-distribution test data
-        Test set: Average loss: 5.3842, Accuracy: 0.0934, ECE: 0.5005
-        AUROC is 0.9362
+        Test set: Average loss: 5.4191, Accuracy: 0.0937, ECE: 0.5065
+        AUROC is 0.9332
 
 CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-cc-swalr0.1 --clf-arch resnet32 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet32-cc-swalr0.1 --nef-amp
 	Performance of classifier
@@ -55,16 +55,16 @@ CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         AUROC is 0.9377
 	Performance of classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.3093, Accuracy: 0.9207, ECE: 0.0369
+        Test set: Average loss: 0.3081, Accuracy: 0.9214, ECE: 0.0358
         On out-of-distribution test data
-        Test set: Average loss: 9.9938, Accuracy: 0.0908, ECE: 0.7337
-        AUROC is 0.8515
+        Test set: Average loss: 10.0267, Accuracy: 0.0909, ECE: 0.7360
+        AUROC is 0.8492
 	Performance of swa classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.2159, Accuracy: 0.9277, ECE: 0.0058
+        Test set: Average loss: 0.2160, Accuracy: 0.9276, ECE: 0.0067
         On out-of-distribution test data
-        Test set: Average loss: 5.5480, Accuracy: 0.0872, ECE: 0.5363
-        AUROC is 0.9280
+        Test set: Average loss: 5.5620, Accuracy: 0.0874, ECE: 0.5394
+        AUROC is 0.9257
 
 CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-cc-swalr0.1 --clf-arch resnet56 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet56-cc-swalr0.1 --nef-amp
 	Performance of classifier
@@ -87,16 +87,16 @@ CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         AUROC is 0.9561
 	Performance of classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.2717, Accuracy: 0.9243, ECE: 0.0339
+        Test set: Average loss: 0.2711, Accuracy: 0.9241, ECE: 0.0333
         On out-of-distribution test data
-        Test set: Average loss: 9.3475, Accuracy: 0.0908, ECE: 0.6941
-        AUROC is 0.8847
+        Test set: Average loss: 9.4138, Accuracy: 0.0904, ECE: 0.7002
+        AUROC is 0.8806
 	Performance of swa classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.1907, Accuracy: 0.9361, ECE: 0.0056
+        Test set: Average loss: 0.1905, Accuracy: 0.9364, ECE: 0.0051
         On out-of-distribution test data
-        Test set: Average loss: 4.8237, Accuracy: 0.0940, ECE: 0.4876
-        AUROC is 0.9534
+        Test set: Average loss: 4.8565, Accuracy: 0.0935, ECE: 0.4941
+        AUROC is 0.9511
 
 CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-cc-swalr0.1 --clf-arch resnet110 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet110-cc-swalr0.1 --nef-amp
 	Performance of classifier
@@ -119,16 +119,16 @@ CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         AUROC is 0.9411
 	Performance of classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.2869, Accuracy: 0.9279, ECE: 0.0331
+        Test set: Average loss: 0.2873, Accuracy: 0.9288, ECE: 0.0320
         On out-of-distribution test data
-        Test set: Average loss: 12.8674, Accuracy: 0.0908, ECE: 0.7769
-        AUROC is 0.7906
+        Test set: Average loss: 12.9351, Accuracy: 0.0910, ECE: 0.7796
+        AUROC is 0.7860
 	Performance of swa classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.1850, Accuracy: 0.9383, ECE: 0.0066
+        Test set: Average loss: 0.1851, Accuracy: 0.9387, ECE: 0.0048
         On out-of-distribution test data
-        Test set: Average loss: 5.2322, Accuracy: 0.0920, ECE: 0.5200
-        AUROC is 0.9387
+        Test set: Average loss: 5.2531, Accuracy: 0.0914, ECE: 0.5247
+        AUROC is 0.9368
 
 
 --------------- our best swa-lr wide resnet-------------
@@ -153,16 +153,16 @@ CUDA_VISIBLE_DEVICES=5 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         AUROC is 0.9851
 	Performance of classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.1450, Accuracy: 0.9561, ECE: 0.0116
+        Test set: Average loss: 0.1455, Accuracy: 0.9560, ECE: 0.0106
         On out-of-distribution test data
-        Test set: Average loss: 4.5975, Accuracy: 0.1103, ECE: 0.5649
-        AUROC is 0.9418
+        Test set: Average loss: 4.6149, Accuracy: 0.1096, ECE: 0.5701
+        AUROC is 0.9395
 	Performance of swa classifier w/ nef
         On in-distribution test data
-        Test set: Average loss: 0.1273, Accuracy: 0.9624, ECE: 0.0102
+        Test set: Average loss: 0.1266, Accuracy: 0.9625, ECE: 0.0099
         On out-of-distribution test data
-        Test set: Average loss: 4.0698, Accuracy: 0.1257, ECE: 0.4770
-        AUROC is 0.9776
+        Test set: Average loss: 4.0840, Accuracy: 0.1260, ECE: 0.4817
+        AUROC is 0.9766
 '''
 import argparse
 import os
