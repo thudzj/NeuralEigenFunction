@@ -147,7 +147,7 @@ def main():
 	riemannian_projection = False
 	max_grad_norm = None
 	# dataset settings
-	dataset = 'two_moon'
+	dataset = 'circles'
 	if dataset == 'two_moon':
 		X, y = make_moons(num_alldata, noise=0.04, random_state=seed)
 		kernel_type = 'relu'
@@ -175,7 +175,7 @@ def main():
 	#     torch.from_numpy(y_train).long(), torch.from_numpy(y_test).long(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
 
 	# plot the dataset
-	figure = plt.figure(figsize=(15, 4.5))
+	figure = plt.figure(figsize=(15, 5))
 	cm = plt.cm.RdBu
 	cm_bright = ListedColormap(['#FF0000', '#0000FF'])
 	ax = figure.add_subplot(131)
