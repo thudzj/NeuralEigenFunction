@@ -34,7 +34,7 @@ CUDA_VISIBLE_DEVICES=0 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         Test set: Average loss: 5.4191, Accuracy: 0.0937, ECE: 0.5065
         AUROC is 0.9332
 
-CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-cc-swalr0.1 --clf-arch resnet32 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet32-cc-swalr0.1 --nef-amp
+CUDA_VISIBLE_DEVICES=2 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-cc-swalr0.1 --clf-arch resnet32 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet32-cc-swalr0.1
 	Performance of classifier
         On in-distribution test data
         Test set: Average loss: 0.3696, Accuracy: 0.9203, ECE: 0.0517
@@ -66,7 +66,7 @@ CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         Test set: Average loss: 5.5620, Accuracy: 0.0874, ECE: 0.5394
         AUROC is 0.9257
 
-CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-cc-swalr0.1 --clf-arch resnet56 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet56-cc-swalr0.1 --nef-amp
+CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-cc-swalr0.1 --clf-arch resnet56 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet56-cc-swalr0.1
 	Performance of classifier
         On in-distribution test data
         Test set: Average loss: 0.3358, Accuracy: 0.9243, ECE: 0.0497
@@ -98,7 +98,7 @@ CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
         Test set: Average loss: 4.8565, Accuracy: 0.0935, ECE: 0.4941
         AUROC is 0.9511
 
-CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-cc-swalr0.1 --clf-arch resnet110 --nef-batch-size 256 --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet110-cc-swalr0.1 --nef-amp
+CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-cc-swalr0.1 --clf-arch resnet110 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet110-cc-swalr0.1
 	Performance of classifier
         On in-distribution test data
         Test set: Average loss: 0.3455, Accuracy: 0.9285, ECE: 0.0463
@@ -132,7 +132,7 @@ CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /da
 
 
 --------------- our best swa-lr wide resnet-------------
-CUDA_VISIBLE_DEVICES=5 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id wrn1610-cc-swalr0.01 --clf-arch wrn16_10 --milestones 50 90 120 --gamma 0.2 --nesterov --weight-decay 5e-4 --nef-batch-size 256 --nef-class-cond --swa-lr 0.01 --pre-trained-dir snapshots/wrn1610-cc-swalr0.01 --nef-amp
+CUDA_VISIBLE_DEVICES=5 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id wrn1610-cc-swalr0.01 --clf-arch wrn16_10 --milestones 50 90 120 --gamma 0.2 --nesterov --weight-decay 5e-4 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.01 --pre-trained-dir snapshots/wrn1610-cc-swalr0.01
 	Performance of classifier
         On in-distribution test data
         Test set: Average loss: 0.1559, Accuracy: 0.9562, ECE: 0.0189
