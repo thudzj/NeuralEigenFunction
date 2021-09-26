@@ -46,7 +46,9 @@ for title, swalr in [('resnet20', 0.1), ('resnet32', 0.1), ('resnet56', 0.1), ('
             ylabel=typ
         )
         handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles=handles, labels=labels)
+        ax.legend(handles=handles, labels=labels, ncol=2)
+        if idx != 0:
+            ax.get_legend().remove()
         ax.set_xticklabels([int(float(t.get_text()))  for t in ax.get_xticklabels()])
         ax.spines['bottom'].set_color('gray')
         ax.spines['top'].set_color('gray')
