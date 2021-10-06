@@ -59,11 +59,7 @@ def our(X, x_dim, x_range, k, kernel, kernel_type, riemannian_projection,
 	num_iterations = 2000
 	num_samples = 2000
 	B = min(128, X.shape[0])
-
 	K = kernel(X)
-	dist = MultivariateNormal(torch.zeros(X.shape[0], device=X.device), 
-							  scale_tril=psd_safe_cholesky(K))
-	samples = dist.sample((num_samples,))
 
 	# perform our method
 	start = timer()
@@ -81,16 +77,15 @@ def our(X, x_dim, x_range, k, kernel, kernel_type, riemannian_projection,
 	for ite in range(num_iterations):
 
 		idx = np.random.choice(X.shape[0], B, replace=False)
-		samples_batch = samples[:, idx]
+		# samples_batch = samples[:, idx]
 		X_batch = X[idx]
-
 		psis_X = nef(X_batch)
 		with torch.no_grad():
-			samples_batch_psis = samples_batch @ psis_X
-			psis_K_psis = samples_batch_psis.T @ samples_batch_psis / num_samples
+			K_psis = K[idx][:, idx] @ psis_X
+			psis_K_psis = psis_X.T @ K_psis
 			mask = torch.eye(k, device=psis_X.device) - \
 				(psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T
-			grad = samples_batch.T @ (samples_batch_psis @ mask / num_samples)
+			grad = K_psis @ mask
 			if eigenvalues_our is None:
 				eigenvalues_our = psis_K_psis.diag() / (B**2)
 			else:
@@ -129,20 +124,15 @@ def plot_efs(ax, k, X_val, eigenfuncs_eval_nystrom, eigenfuncs_eval_our=None,
 				if eigenfuncs_eval_our[1300:1400, i].mean() > 0 else -eigenfuncs_eval_our[:, i]
 			ax.plot(X_val.view(-1), data, linestyle='dashdot', label='$\hat\psi_{}$ (our)'.format(i+1))
 
-	# ax.set_xlim(0., 0.999)
-	# ax.set_title('CIFAR10+SVHN Error vs Confidence')
 	ax.set_xlabel('x')
 	ax.set_ylabel('y')
 	ax.set_xlim(xlim[0], xlim[1])
 	ax.set_ylim(ylim[0], ylim[1])
-	# ax.set_ylabel('CIFAR-10 Test Accuracy (%)', fontsize=16)
 
 	ax.spines['bottom'].set_color('gray')
 	ax.spines['top'].set_color('gray')
 	ax.spines['right'].set_color('gray')
 	ax.spines['left'].set_color('gray')
-	# ax.spines['right'].set_visible(False)
-	# ax.spines['top'].set_visible(False)
 	ax.set_axisbelow(True)
 	ax.grid(axis='y', color='lightgray', linestyle='--')
 	ax.grid(axis='x', color='lightgray', linestyle='--')
@@ -163,7 +153,7 @@ def main():
 	k = 3
 	riemannian_projection = False
 	max_grad_norm = None
-	for kernel_type in ['rbf', 'polynomial']: #
+	for kernel_type in ['rbf', 'polynomial', 'periodic_plus_rbf']: #
 		if kernel_type == 'rbf':
 			kernel = partial(rbf_kernel, 1, 1)
 			ylim = [-2., 2.]
@@ -187,7 +177,7 @@ def main():
 					(x_range[1] - x_range[0]) / 2000.).view(-1, 1)
 		eigenvalues_nystrom_list, eigenfuncs_nystrom_list, cost_nystrom_list = [], [], []
 		eigenvalues_our_list, nefs_our_list, cost_our_list = [], [], []
-		NS = [16, 128, 1024, 8196]
+		NS = [64, 256, 1024, 4096]
 		for N in NS:
 			X = torch.empty(N, x_dim).uniform_(x_range[0], x_range[1])
 
@@ -219,7 +209,7 @@ def main():
 		if kernel_type != 'rbf':
 			ax.legend(ncol=2, columnspacing=1.2, handletextpad=0.5)
 			ax.text(-1.5, -2.2, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=18)
-			ax.set_title('Eigenfunction comparison (16 samples)', pad=20)
+			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[0]), pad=20)
 		else:
 			ax.text(-3.1, -2., '$\\kappa(x, x\')=exp(-||x - x\'||^2/2)$', rotation=90, fontsize=18)
 			ax.set_title(' ', pad=20)
@@ -229,7 +219,7 @@ def main():
 			plot_efs(ax, k, X_val, eigenfuncs_nystrom_list[1](X_val), 
 					 nefs_our_list[1](X_val), k, x_range, ylim)
 		if kernel_type != 'rbf':
-			ax.set_title('Eigenfunction comparison (128 samples)', pad=20)
+			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[1]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
 
@@ -238,7 +228,7 @@ def main():
 			plot_efs(ax, k, X_val, eigenfuncs_nystrom_list[2](X_val), 
 					 nefs_our_list[2](X_val), k, x_range, ylim)
 		if kernel_type != 'rbf':
-			ax.set_title('Eigenfunction comparison (1024 samples)', pad=20)
+			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[2]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
 
@@ -248,7 +238,7 @@ def main():
 			plot_efs(ax, k, X_val, eigenfuncs_nystrom_list[3](X_val), 
 					 nefs_our_list[3](X_val), k, x_range, ylim)
 		if kernel_type != 'rbf':
-			ax.set_title('Eigenfunction comparison (8192 samples)', pad=20)
+			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[3]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
 
