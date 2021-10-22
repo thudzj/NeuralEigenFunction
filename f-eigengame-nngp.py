@@ -75,7 +75,7 @@ def our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection
 										   hidden_size=16,
 										   output_size=1,
 										   bias=True,
-										   num_layers=len(w_var_list))
+										   num_layers=num_layers)
 	samples = []
 	with torch.no_grad():
 		for _ in range(num_samples):
@@ -151,7 +151,6 @@ def main():
 	if dataset == 'two_moon':
 		X, y = make_moons(num_alldata, noise=0.04, random_state=seed)
 		kernel_type = 'relu'
-		b_var_list = [0.01, 0.01, 0.01]
 	elif dataset == 'circles':
 		X, y = make_circles(num_alldata, noise=0.04, factor=0.5, random_state=seed)
 	else:
@@ -160,19 +159,9 @@ def main():
 	kernel = NNGPKernel(kernel_type=kernel_type, w_var_list=w_var_list, b_var_list=b_var_list)
 
 	X = StandardScaler().fit_transform(X)
-	# X_train, X_test, y_train, y_test = \
-	#     train_test_split(X, y, test_size=.2, random_state=seed)
-
 	x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
 	y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + 0.6
-
-	# for plotting decision boundaries
-	xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.01),
-						 np.arange(y_min, y_max, 0.01))
-
-	X, xx, yy = torch.from_numpy(X).float(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
-	# X_train, X_test, y_train, y_test, xx, yy = torch.from_numpy(X_train).float(), torch.from_numpy(X_test).float(), \
-	#     torch.from_numpy(y_train).long(), torch.from_numpy(y_test).long(), torch.from_numpy(xx).float(), torch.from_numpy(yy).float()
+	X = torch.from_numpy(X).float()
 
 	# plot the dataset
 	figure = plt.figure(figsize=(15, 5))
@@ -186,8 +175,8 @@ def main():
 	# # Plot the testing points
 	# ax.scatter(X_test[:, 0], X_test[:, 1], c=y_test, cmap=cm_bright, alpha=0.6,
 	#            edgecolors='k')
-	ax.set_xlim(xx.min(), xx.max())
-	ax.set_ylim(yy.min(), yy.max())
+	ax.set_xlim(x_min, x_max)
+	ax.set_ylim(y_min, y_max)
 	# plt.setp( ax.get_xticklabels(), visible=False)
 	# plt.setp( ax.get_yticklabels(), visible=False)
 	# plt.setp( ax.get_zticklabels(), visible=False)

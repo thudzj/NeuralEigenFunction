@@ -17,12 +17,12 @@ for title, swalr in [('resnet20', 0.1), ('resnet32', 0.1), ('resnet56', 0.1), ('
     # title = 'resnet20' #'wrn1610' #resnet20
     # swalr = 0.1 #0.01
     files = ['clf_{}-cc-swalr{}.npy',
-            'nef_clf_{}-cc-swalr{}.npy',
+            # 'nef_clf_{}-cc-swalr{}.npy',
             'swa_clf_{}-cc-swalr{}.npy',
             'swag_clf_{}-swag-swalr{}.npy',
             'nef_swa_clf_{}-cc-swalr{}.npy',
             ]
-    labels = ['SGD', 'SGD++', 'SWA', 'SWAG', 'SWA++']
+    labels = ['SGD', 'SWA', 'SWAG', 'SWA+NeuralEF']
 
     for typ in ['Negative Log-likelihood', 'Accuracy', 'Expected Calibration Error']:
         if typ == 'Negative Log-likelihood':
