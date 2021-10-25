@@ -172,9 +172,9 @@ class SinAndCos(torch.nn.Module):
 		super(SinAndCos, self).__init__()
 
 	def forward(self, x):
-		assert x.dim() == 2 and x.shape[1] % 2 == 0
-		x1, x2 = x.chunk(2, dim=1)
-		return torch.cat([torch.sin(x1), torch.cos(x2)], 1)
+		assert x.shape[-1] % 2 == 0
+		x1, x2 = x.chunk(2, dim=-1)
+		return torch.cat([torch.sin(x1), torch.cos(x2)], -1)
 
 def build_mlp_given_config(**kwargs):
 	if kwargs['nonlinearity'] == 'relu':
@@ -391,7 +391,8 @@ class ParallelLinear(nn.Module):
 		self.register_parameter('bias', nn.Parameter(torch.zeros(num_copies, 1, out_features)))
 
 		for i in range(num_copies):
-			nn.init.kaiming_normal_(self.weight[i])
+			nn.init.kaiming_uniform_(self.weight[i], a=math.sqrt(5))
+		nn.init.uniform_(self.bias, -1 / math.sqrt(in_features), 1 / math.sqrt(in_features))
 
 	def forward(self, x):
 		if x.dim() == 2:
@@ -399,18 +400,29 @@ class ParallelLinear(nn.Module):
 		return (self.weight @ x.permute(0, 2, 1)).permute(0, 2, 1) + self.bias
 
 class ParallelMLP(nn.Module):
-	def __init__(self, in_features, out_features, num_copies, num_layers, hidden_size=64):
+	def __init__(self, in_features, out_features, num_copies, num_layers, hidden_size=64, nonlinearity='relu'):
 		super(ParallelMLP, self).__init__()
+
+		if nonlinearity == 'relu':
+			nonlinearity=nn.ReLU
+		elif 'lrelu' in nonlinearity:
+			nonlinearity=partial(nn.LeakyReLU, float(nonlinearity.replace("lrelu", "")))
+		elif nonlinearity == 'erf':
+			nonlinearity=Erf
+		elif nonlinearity == 'sin_and_cos':
+			nonlinearity=SinAndCos
+		else:
+			raise NotImplementedError
 
 		if num_layers == 1:
 			self.fn = nn.Sequential(
 				ParallelLinear(in_features, out_features, num_copies))
 		else:
 			layers = [ParallelLinear(in_features, hidden_size, num_copies),
-					  nn.ReLU(),
+					  nonlinearity(),
 					  ParallelLinear(hidden_size, out_features, num_copies)]
 			for _ in range(num_layers - 2):
-				layers.insert(2, nn.ReLU())
+				layers.insert(2, nonlinearity())
 				layers.insert(2, nn.Linear(hidden_size, hidden_size, num_copies))
 			self.fn = nn.Sequential(*layers)
 

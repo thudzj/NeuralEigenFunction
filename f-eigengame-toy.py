@@ -23,7 +23,7 @@ from torch.nn import Module
 from torch.distributions import MultivariateNormal
 
 from utils import nystrom, psd_safe_cholesky, rbf_kernel, \
-	polynomial_kernel, periodic_plus_rbf_kernel, build_mlp_given_config
+	polynomial_kernel, periodic_plus_rbf_kernel, build_mlp_given_config, ParallelMLP
 
 Tensor = torch.Tensor
 FloatTensor = torch.FloatTensor
@@ -63,25 +63,17 @@ class PolynomialEigenFunctions(nn.Module):
 		return ret_raw / norm_
 
 class NeuralEigenFunctions(nn.Module):
-	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1, hidden_size=32, num_layers=3, output_size=1, bias=True, momentum=0.9, normalize_over=[0], for_spin=False):
+	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1, hidden_size=32, num_layers=3, output_size=1,  momentum=0.9, normalize_over=[0], for_spin=False):
 		super(NeuralEigenFunctions, self).__init__()
 		self.momentum = momentum
 		self.normalize_over = normalize_over
 		self.for_spin = for_spin
-		self.functions = nn.ModuleList()
-		for i in range(k):
-			function = build_mlp_given_config(nonlinearity=nonlinearity,
-											  input_size=input_size,
-											  hidden_size=hidden_size,
-											  output_size=output_size,
-											  num_layers=num_layers,
-											  bias=bias)
-			self.functions.append(function)
+		self.fn = ParallelMLP(input_size, output_size, k, num_layers, hidden_size, nonlinearity)
 		self.register_buffer('eigennorm', torch.zeros(k))
 		self.register_buffer('num_calls', torch.Tensor([0]))
 
 	def forward(self, x):
-		ret_raw = torch.cat([f(x) for f in self.functions], 1)
+		ret_raw = self.fn(x).squeeze()
 		if self.for_spin:
 			return ret_raw
 
@@ -170,18 +162,14 @@ def load_weights(mod: Module, names: List[str], params: Tuple[Tensor, ...]) -> N
 def compute_jacobian(model, x):
 	jac_model = copy.deepcopy(model)
 	all_params, all_names = extract_weights(jac_model)
-	load_weights(jac_model, all_names, all_params)
 
-	def sigma(model, x, name, param):
-		load_weights(model, [name], [param])
+	def sigma(model, x, names, params):
+		load_weights(model, names, params)
 		out = model(x)
 		return out.T @ out / out.shape[0]
 
-	jacs = []
-	for i, (name, param) in enumerate(zip(all_names, all_params)):
-		jac = torch.autograd.functional.jacobian(lambda param: sigma(jac_model, x, name, param), param,
-							 strict=True if i==0 else False, vectorize=False)
-		jacs.append(jac)
+	jacs = torch.autograd.functional.jacobian(lambda *params: sigma(jac_model, x, all_names, params), 
+										all_params, strict=True, vectorize=False)
 	return jacs
 
 def spin(model_class, X, x_dim, x_range, k, kernel):
@@ -191,7 +179,7 @@ def spin(model_class, X, x_dim, x_range, k, kernel):
 	K = kernel(X)
 
 	start = timer()
-	nef = model_class(k)
+	nef = model_class(k, for_spin=True)
 	optimizer = torch.optim.SGD(nef.parameters(), lr=lr)
 	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
@@ -373,7 +361,7 @@ def main():
 					 label_list, linestyle_list,
 					 k, x_range, ylim)
 		if kernel_type != 'rbf':
-			ax.legend(ncol=2, columnspacing=1.2, handletextpad=0.5)
+			# ax.legend(ncol=3, columnspacing=1.2, handletextpad=0.5)
 			ax.text(-1.5, -2.2, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=18)
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[0]), pad=20)
 		else:
@@ -413,6 +401,7 @@ def main():
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[3]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
+		handles, labels = ax.get_legend_handles_labels()
 
 		ax = fig.add_subplot(155)
 		ax.tick_params(axis='y', which='major', labelsize=12)
@@ -438,12 +427,14 @@ def main():
 		ax.set_axisbelow(True)
 		ax.grid(axis='y', color='lightgray', linestyle='--')
 		ax.grid(axis='x', color='lightgray', linestyle='--')
-		if kernel_type != 'rbf':
-			ax.legend()
+		ax.legend()
 		if kernel_type != 'rbf':
 			ax.set_title('Training time comparison', pad=20)
 		else:
 			ax.set_title(' ', pad=20)
+
+		if kernel_type == 'rbf':
+			fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=9, fancybox=True, shadow=True, prop={'size':18})
 		fig.tight_layout()
 		fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type), 
 					format='pdf', dpi=1000, bbox_inches='tight')
