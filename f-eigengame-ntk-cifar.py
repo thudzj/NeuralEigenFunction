@@ -1,5 +1,5 @@
 '''
-CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32  --ood-classes 8 9 --draw-eigenvalues --resume auto (--nef-resume snapshots//resnet20-ntk-bs256-ip32/nef_checkpoint_199.th)
+CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32  --ood-classes 8 9 --draw --resume auto (--nef-resume snapshots//resnet20-ntk-bs256-ip32/nef_checkpoint_199.th)
 	Clustering acc on in-dis. validation data 0.678
 	Clustering acc given clf features on in-dis. validation data 0.9895
 	Clustering acc given eigen projections on in-dis. validation data 0.9745
@@ -65,7 +65,8 @@ import pandas as pd
 import seaborn as sns
 
 from utils import _ECELoss, time_string, convert_secs2time, dataset_with_indices, \
-	fuse_bn_recursively, psd_safe_cholesky, binary_classification_given_uncertainty
+	fuse_bn_recursively, psd_safe_cholesky, binary_classification_given_uncertainty, \
+	ParallelMLP
 from models.resnet import *
 from models.wide_resnet import *
 
@@ -125,7 +126,7 @@ parser.add_argument('--nef-num-samples-eval', default=256, type=int)
 parser.add_argument('--nef-no-bn', action='store_true')
 parser.add_argument('--nef-share', action='store_true')
 parser.add_argument('--nef-amp', action='store_true')
-parser.add_argument('--draw-eigenvalues', action='store_true')
+parser.add_argument('--draw', action='store_true')
 parser.add_argument('--delta', default=5, type=float, help='delta') # # of data * weight_decay = 50000 * 1e-4 = 5
 parser.add_argument('--ntk-std-scale', default=1, type=float)
 
@@ -200,14 +201,43 @@ def main():
 		args.nef_max_grad_norm, args.nef_amp,
 		nef_train_val_loader, val_loader, ground_truth_NTK_val)
 
-	if args.draw_eigenvalues:
-		draw_eigenvalues(args, eigenvalues, NTK_samples)
+	if args.draw:
+		draw_eigenvalues(args, eigenvalues, ground_truth_NTK)
+
+		nef.eval()
+		with torch.no_grad():
+			nef_output = torch.cat([nef(data.cuda()) for (data, _) in val_loader]) * eigenvalues.sqrt()
+			NTK_val_our = (nef_output[:ground_truth_NTK_val.shape[0]] @ nef_output[:ground_truth_NTK_val.shape[0]].T).cpu()
+
+			all_images = torch.cat([images.cuda(non_blocking=True) for images, _ in val_loader])
+			logits = logit(all_images, classifier, args)
+			new_classifier = copy.deepcopy(classifier)
+			NTK_samples_val = []
+			for i in tqdm(range(10),
+						  desc = 'Sampling from the NTK kernel on validation data'):
+				for p, p_ in zip(new_classifier.parameters(), classifier.parameters()):
+					if args.random_dist_type == 'normal':
+						perturbation = torch.randn_like(p) * args.epsilon #/ math.sqrt(num_params)
+					elif args.random_dist_type == 'rademacher':
+						perturbation = torch.randn_like(p).sign() * args.epsilon #/ math.sqrt(num_params)
+					else:
+						raise NotImplementedError
+					p.data.copy_(p_.data).add_(perturbation)
+				new_logits = logit(all_images, new_classifier, args)
+				NTK_samples_val.append(((new_logits - logits) / args.epsilon).cpu())
+			NTK_samples_val = torch.stack(NTK_samples_val, 0).flatten(1)
+			NTK_samples_val /= math.sqrt(scale_ * NTK_samples_val.shape[0])
+			NTK_val_MC = NTK_samples_val.T @ NTK_samples_val
+
+			diag = ground_truth_NTK_val.diagonal().rsqrt().diag_embed().numpy()
+			draw_kernel(args, [NTK_val_our.numpy(), NTK_val_MC.numpy(), ground_truth_NTK_val.numpy()], diag,
+						['Our ($k=10$)', 'Random feature approach ($S=10$)', 'Ground truth'], 'last')
 
 	# nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
 	# eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
 
 	if args.num_classes == 2:
-		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood)
+		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val)
 	else:
 		ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loader)
 
@@ -302,8 +332,6 @@ def train_nef(args, nef, collected_samples, train_loader,
 			print(eigenvalues[:10].data.cpu().numpy(), dist_train, dist_val)
 			print(torch.cat([collected_samples[:, :3].T @ collected_samples[:, :3] / num_samples, NTK_train_our[:3, :3],
 							 ground_truth_NTK_val[:3, :3], NTK_val_our[:3, :3]], -1).data.cpu().numpy())
-			draw_kernel(args, [NTK_val_our.numpy(), ground_truth_NTK_val.numpy()],
-						['Our', 'Ground truth'], epoch)
 
 		if epoch % 10 == 0 or epoch == epochs - 1:
 			ckpt = {'epoch': epoch + 1}
@@ -325,11 +353,25 @@ class NeuralEigenFunctions(nn.Module):
 		self.momentum = momentum
 		self.normalize_over = normalize_over
 		self.functions = nn.ModuleList()
-		num_models = 1 if share else k
-		out_dim = (k if share else 1) * (num_classes if num_classes != 2 else 1)
-		for i in range(num_models):
-			function = eval(arch)(in_planes, out_dim)
+
+		if share:
+			function = eval(arch)(in_planes, 1)
+			if hasattr(function, 'fc'):
+				fc = ParallelMLP(function.fc.in_features, num_classes if num_classes != 2 else 1, k, 2)
+				del function.fc
+				function.fc = fc
+			elif hasattr(function, 'linear'):
+				linear = ParallelMLP(function.linear.in_features, num_classes if num_classes != 2 else 1, k, 2)
+				del function.linear
+				function.linear = linear
+			else:
+				raise NotImplementedError
 			self.functions.append(function)
+		else:
+			for i in range(k):
+				function = eval(arch)(in_planes, num_classes if num_classes != 2 else 1)
+				self.functions.append(function)
+
 		self.register_buffer('eigennorm', torch.zeros(k))
 		self.register_buffer('num_calls', torch.Tensor([0]))
 
@@ -390,7 +432,7 @@ def get_ground_truth_ntk(args, classifier, train_loader, val_loader):
 				output[:,k].sum().backward()
 			Jacobian_batch.append(torch.cat([p.grad_batch.flatten(1) for p in bp_model.parameters()], -1).cpu())
 		Jacobian.append(torch.stack(Jacobian_batch, 1))
-		if len(Jacobian) == 4:
+		if len(Jacobian) == 20:
 			break
 
 	for (images, _) in tqdm(val_loader, desc = 'Calc Jacobian for validation data'):
@@ -403,13 +445,16 @@ def get_ground_truth_ntk(args, classifier, train_loader, val_loader):
 				output[:,k].sum().backward()
 			Jacobian_batch.append(torch.cat([p.grad_batch.flatten(1) for p in bp_model.parameters()], -1).cpu())
 		Jacobian_val.append(torch.stack(Jacobian_batch, 1))
-		if len(Jacobian_val) == 4:
+		if len(Jacobian_val) == 20:
 			break
 	Jacobian, Jacobian_val = torch.cat(Jacobian), torch.cat(Jacobian_val) #/math.sqrt(num_params) /math.sqrt(num_params)
-	ground_truth_NTK, ground_truth_NTK_val = Jacobian[:100].flatten(0,1) @ Jacobian[:100].flatten(0,1).T, Jacobian_val[:100].flatten(0,1) @ Jacobian_val[:100].flatten(0,1).T
+	if args.num_classes == 10:
+		Jacobian = Jacobian[:100]
+		Jacobian_val = Jacobian_val[:100]
+	ground_truth_NTK, ground_truth_NTK_val = Jacobian.flatten(0,1) @ Jacobian.flatten(0,1).T, Jacobian_val.flatten(0,1) @ Jacobian_val.flatten(0,1).T
 	return ground_truth_NTK, ground_truth_NTK_val
 
-def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood):
+def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val):
 	nef.eval()
 	classifier.eval()
 	with torch.no_grad():
@@ -434,6 +479,10 @@ def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood):
 	assignment = KMeans(len(args.classes)).fit_predict(val_eigen_projections)
 	preds = assignment2pred(assignment, val_labels, len(args.classes))
 	print("Clustering acc given eigen projections on in-dis. validation data", (preds==val_labels.numpy()).astype(np.float32).mean())
+
+	assignment = KMeans(len(args.classes)).fit_predict(NTK_samples_val[:10].T)
+	preds = assignment2pred(assignment, val_labels, len(args.classes))
+	print("Clustering acc given random features on in-dis. validation data", (preds==val_labels.numpy()).astype(np.float32).mean())
 
 	assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_data)
 	preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
@@ -768,13 +817,17 @@ def load_cifar(args):
 
 	return train_loader, nef_train_loader, nef_train_val_loader, val_loader, val_loader_ood
 
-def draw_eigenvalues(args, eigenval_our, collected_samples):
-	num_samples = collected_samples.shape[0]
+def draw_eigenvalues(args, eigenval_our, ground_truth_NTK):
+	from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
+	from mpl_toolkits.axes_grid1.inset_locator import mark_inset
+
+
+	# num_samples = collected_samples.shape[0]
 	k = args.nef_k
-	K = collected_samples.T @ collected_samples / num_samples
+	K = ground_truth_NTK
 	# eigenval_gd, eigenvec_gd = torch.symeig(K[:1000, :1000], eigenvectors=True)
 	eigenval_gd = torch.symeig(K, eigenvectors=False)[0]
-	eigenval_gd = eigenval_gd[range(len(eigenval_gd)-1, -1, -1)] / collected_samples.shape[1]
+	eigenval_gd = eigenval_gd[range(len(eigenval_gd)-1, -1, -1)] / ground_truth_NTK.shape[1]
 	# projection_gd = eigenvec_gd[:, range(-1, -(k+1), -1)] * math.sqrt(collected_samples.shape[1]) * eigenval_gd[:k].sqrt()
 	# print(torch.dist(K, projection_gd @ projection_gd.T))
 	print('Ground truth top 10 eigenvalues', eigenval_gd[:10].data.cpu().numpy())
@@ -787,29 +840,49 @@ def draw_eigenvalues(args, eigenval_our, collected_samples):
 	ax.tick_params(axis='x', which='minor', labelsize=12)
 
 	sns.color_palette()
-	ax.plot(list(range(len(eigenval_gd[:3000]))), eigenval_gd[:3000].data.cpu().numpy(), alpha=1, label='Ground truth')
-	ax.plot(list(range(len(eigenval_our))), eigenval_our.data.cpu().numpy(), alpha=1, label='Our')
+	ax.plot(list(range(len(eigenval_gd[:2048]))), eigenval_gd[:2048].data.cpu().numpy(), alpha=1, label='Ground truth')
+	ax.plot(list(range(len(eigenval_our))), eigenval_our.data.cpu().numpy(), ':v', markersize=3, label='Our')
 	ax.set_yscale('log')
-	ax.set_xlabel('k', fontsize=16)
-	ax.set_ylabel('Eigenvalue', fontsize=16)
+	ax.set_xlabel('$i$-th eigenvalue', fontsize=16)
+	# ax.set_ylabel('Value', fontsize=16)
 
 	ax.spines['bottom'].set_color('gray')
 	ax.spines['top'].set_color('gray')
 	ax.spines['right'].set_color('gray')
 	ax.spines['left'].set_color('gray')
 	ax.set_axisbelow(True)
-	ax.legend()
+
+	# axins = zoomed_inset_axes(ax, 1.4, loc=1) # zoom = 6
+	# axins.plot(list(range(len(eigenval_gd[:3000]))), eigenval_gd[:3000].data.cpu().numpy(), alpha=1)#, marker='o')
+	# axins.plot(list(range(len(eigenval_our))), eigenval_our.data.cpu().numpy(), alpha=1)#, marker='v')
+	# # sub region of the original image
+	# x1, x2, y1, y2 = 0, 9, 0.01, 0.4
+	# axins.set_yscale('log')
+	# axins.set_xlim(x1, x2)
+	# axins.set_ylim(y1, y2)
+	# axins.set_xticks([])
+	# axins.set_xticks([], minor=True)
+	# axins.set_yticks([])
+	# axins.set_yticks([], minor=True)
+	#
+	# # draw a bbox of the region of the inset axes in the parent axes and
+	# # connecting lines between the bbox and the inset axes area
+	# mark_inset(ax, axins, loc1=1, loc2=4, fc="none", ec="0.5")
+
+	ax.legend()#loc='upper center')
 	fig.tight_layout()
 	fig.savefig(os.path.join(args.save_dir, 'eigenvalues_{}.pdf'.format(args.nef_k)), format='pdf', dpi=1000, bbox_inches='tight')
 
-def draw_kernel(args, kernels, labels, epoch):
-	ma = 2
+def draw_kernel(args, kernels, diag, labels, epoch):
+	ma = 1
 	mi = -1
 
 	fig = plt.figure(figsize=(5*len(kernels), 5))
 	for i, (k, l) in enumerate(zip(kernels, labels)):
 		ax = fig.add_subplot(100 + 10 * len(kernels) + i + 1)
-		im = ax.imshow(k, cmap='inferno', vmin=mi, vmax=ma)
+		# diag = np.diag(1. / np.sqrt(np.diag(k)))
+		k = diag @ k @ diag
+		im = ax.imshow(k[:128,:128], cmap='seismic', vmin=mi, vmax=ma)
 		ax.set_xlabel('')
 		ax.set_ylabel('')
 		ax.set_title(l)

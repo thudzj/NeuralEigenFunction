@@ -373,6 +373,39 @@ class ConvNetKernel(nn.Module):
 		# print(x.shape, x.view(-1, *self.input_size).shape, x2)
 		return self.model(x.view(-1, *self.input_size), None if x2 is None else x2.view(-1, *self.input_size))
 
+class ParallelLinear(nn.Module):
+	def __init__(self, in_features, out_features, num_copies):
+		super(ParallelLinear, self).__init__()
+		self.register_parameter('weight', nn.Parameter(torch.randn(num_copies, out_features, in_features)))
+		self.register_parameter('bias', nn.Parameter(torch.zeros(num_copies, 1, out_features)))
+
+		for i in range(num_copies):
+			nn.init.kaiming_normal_(self.weight[i])
+
+	def forward(self, x):
+		if x.dim() == 2:
+			x = x.unsqueeze(0)
+		return (self.weight @ x.permute(0, 2, 1)).permute(0, 2, 1) + self.bias
+
+class ParallelMLP(nn.Module):
+	def __init__(self, in_features, out_features, num_copies, num_layers, hidden_size=64):
+		super(ParallelMLP, self).__init__()
+
+		if num_layers == 1:
+			self.fn = nn.Sequential(
+				ParallelLinear(in_features, out_features, num_copies))
+		else:
+			layers = [ParallelLinear(in_features, hidden_size, num_copies),
+					  nn.ReLU(),
+					  ParallelLinear(hidden_size, out_features, num_copies)]
+			for _ in range(num_layers - 2):
+				layers.insert(2, nn.ReLU())
+				layers.insert(2, nn.Linear(hidden_size, hidden_size, num_copies))
+			self.fn = nn.Sequential(*layers)
+
+	def forward(self, x):
+		return self.fn(x).permute(1, 2, 0)
+
 def data_transform(x):
 	return x.flatten().mul_(2).sub_(1)
 
