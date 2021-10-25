@@ -23,13 +23,13 @@ from torch.nn import Module
 from torch.distributions import MultivariateNormal
 
 from utils import nystrom, psd_safe_cholesky, rbf_kernel, \
-	polynomial_kernel, periodic_plus_rbf_kernel
+	polynomial_kernel, periodic_plus_rbf_kernel, build_mlp_given_config
 
 Tensor = torch.Tensor
 FloatTensor = torch.FloatTensor
 
 class PolynomialEigenFunctions(nn.Module):
-	def __init__(self, k, r, momentum=0.9, normalize_over=[0], for_spin=False):
+	def __init__(self, k, r=5, momentum=0.9, normalize_over=[0], for_spin=False):
 		super(PolynomialEigenFunctions, self).__init__()
 		self.momentum = momentum
 		self.normalize_over = normalize_over
@@ -62,7 +62,44 @@ class PolynomialEigenFunctions(nn.Module):
 			norm_ = self.eigennorm
 		return ret_raw / norm_
 
-def our(X, x_dim, x_range, k, kernel, riemannian_projection, max_grad_norm):
+class NeuralEigenFunctions(nn.Module):
+	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1, hidden_size=32, num_layers=3, output_size=1, bias=True, momentum=0.9, normalize_over=[0], for_spin=False):
+		super(NeuralEigenFunctions, self).__init__()
+		self.momentum = momentum
+		self.normalize_over = normalize_over
+		self.for_spin = for_spin
+		self.functions = nn.ModuleList()
+		for i in range(k):
+			function = build_mlp_given_config(nonlinearity=nonlinearity,
+											  input_size=input_size,
+											  hidden_size=hidden_size,
+											  output_size=output_size,
+											  num_layers=num_layers,
+											  bias=bias)
+			self.functions.append(function)
+		self.register_buffer('eigennorm', torch.zeros(k))
+		self.register_buffer('num_calls', torch.Tensor([0]))
+
+	def forward(self, x):
+		ret_raw = torch.cat([f(x) for f in self.functions], 1)
+		if self.for_spin:
+			return ret_raw
+
+		if self.training:
+			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(
+						np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
+			with torch.no_grad():
+				if self.num_calls == 0:
+					self.eigennorm.copy_(norm_.data)
+				else:
+					self.eigennorm.mul_(self.momentum).add_(
+						norm_.data, alpha = 1-self.momentum)
+				self.num_calls += 1
+		else:
+			norm_ = self.eigennorm
+		return ret_raw / norm_
+
+def our(model_class, X, x_dim, x_range, k, kernel, riemannian_projection, max_grad_norm):
 	lr = 1e-3
 	num_iterations = 2000
 	B = min(128, X.shape[0])
@@ -70,7 +107,7 @@ def our(X, x_dim, x_range, k, kernel, riemannian_projection, max_grad_norm):
 
 	# perform our method
 	start = timer()
-	nef = PolynomialEigenFunctions(k, 5)
+	nef = model_class(k)
 	optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
 	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
@@ -147,15 +184,15 @@ def compute_jacobian(model, x):
 		jacs.append(jac)
 	return jacs
 
-def spin(X, x_dim, x_range, k, kernel):
+def spin(model_class, X, x_dim, x_range, k, kernel):
 	lr = 1e-3
 	num_iterations = 2000
 	B = min(128, X.shape[0])
 	K = kernel(X)
 
 	start = timer()
-	nef = PolynomialEigenFunctions(k, 5, for_spin=True)
-	optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
+	nef = model_class(k)
+	optimizer = torch.optim.SGD(nef.parameters(), lr=lr)
 	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
 	nef.train()
@@ -269,6 +306,7 @@ def main():
 	k = 3
 	riemannian_projection = False
 	max_grad_norm = None
+	model_class = NeuralEigenFunctions # PolynomialEigenFunctions
 	for kernel_type in ['rbf', 'polynomial', 'periodic_plus_rbf']: #
 		if kernel_type == 'rbf':
 			kernel = partial(rbf_kernel, 1, 1)
@@ -303,12 +341,12 @@ def main():
 			eigenfuncs_nystrom_list.append(eigenfuncs_nystrom)
 			cost_nystrom_list.append(c)
 
-			eigenvalues_spin, nef_spin, c = spin(X, x_dim, x_range, k, kernel)
+			eigenvalues_spin, nef_spin, c = spin(model_class, X, x_dim, x_range, k, kernel)
 			eigenvalues_spin_list.append(eigenvalues_spin)
 			nefs_spin_list.append(nef_spin)
 			cost_spin_list.append(c)
 
-			eigenvalues_our, nef, c = our(X, x_dim, x_range, k, kernel, 
+			eigenvalues_our, nef, c = our(model_class, X, x_dim, x_range, k, kernel, 
 										  riemannian_projection, max_grad_norm)
 			eigenvalues_our_list.append(eigenvalues_our)
 			nefs_our_list.append(nef)

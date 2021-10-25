@@ -167,6 +167,15 @@ class Erf(torch.nn.Module):
 	def forward(self, x):
 		return x.erf()
 
+class SinAndCos(torch.nn.Module):
+	def __init__(self):
+		super(SinAndCos, self).__init__()
+
+	def forward(self, x):
+		assert x.dim() == 2 and x.shape[1] % 2 == 0
+		x1, x2 = x.chunk(2, dim=1)
+		return torch.cat([torch.sin(x1), torch.cos(x2)], 1)
+
 def build_mlp_given_config(**kwargs):
 	if kwargs['nonlinearity'] == 'relu':
 		nonlinearity=nn.ReLU
@@ -174,6 +183,8 @@ def build_mlp_given_config(**kwargs):
 		nonlinearity=partial(nn.LeakyReLU, float(kwargs['nonlinearity'].replace("lrelu", "")))
 	elif kwargs['nonlinearity'] == 'erf':
 		nonlinearity=Erf
+	elif kwargs['nonlinearity'] == 'sin_and_cos':
+		nonlinearity=SinAndCos
 	else:
 		raise NotImplementedError
 	if kwargs['num_layers'] == 1:
