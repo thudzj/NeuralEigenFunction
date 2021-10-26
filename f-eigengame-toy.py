@@ -180,7 +180,7 @@ def spin(model_class, X, x_dim, x_range, k, kernel):
 
 	start = timer()
 	nef = model_class(k, for_spin=True)
-	optimizer = torch.optim.SGD(nef.parameters(), lr=lr)
+	optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
 	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
 	nef.train()

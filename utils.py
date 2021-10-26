@@ -391,8 +391,10 @@ class ParallelLinear(nn.Module):
 		self.register_parameter('bias', nn.Parameter(torch.zeros(num_copies, 1, out_features)))
 
 		for i in range(num_copies):
-			nn.init.kaiming_uniform_(self.weight[i], a=math.sqrt(5))
-		nn.init.uniform_(self.bias, -1 / math.sqrt(in_features), 1 / math.sqrt(in_features))
+			# nn.init.kaiming_uniform_(self.weight[i], a=math.sqrt(5))
+			nn.init.uniform_(self.weight[i], -0.4/math.sqrt(in_features), 0.4/math.sqrt(in_features))
+		# nn.init.uniform_(self.bias, -1 / math.sqrt(in_features), 1 / math.sqrt(in_features))
+		nn.init.zeros_(self.bias)
 
 	def forward(self, x):
 		if x.dim() == 2:
