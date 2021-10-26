@@ -166,7 +166,8 @@ def compute_jacobian(model, x):
 	def sigma(model, x, names, params):
 		load_weights(model, names, params)
 		out = model(x)
-		return out.T @ out / out.shape[0]
+		U1, U2 = out.chunk(2, dim=0)
+		return (U1.T @ U1 + U2.T @ U2) / out.shape[0]
 
 	jacs = torch.autograd.functional.jacobian(lambda *params: sigma(jac_model, x, all_names, params), 
 										all_params, strict=True, vectorize=False)
@@ -192,23 +193,24 @@ def spin(model_class, X, x_dim, x_range, k, kernel):
 		# subsample the data and the kernel matrix
 		idx = np.random.choice(X.shape[0], B, replace=False)
 		X_batch = X[idx]
-		K_batch = K[idx][:, idx]
+		# X1, X2 = X_batch.chunk(2, dim=0)
 
 		# network propagation
-		psis_X = nef(X_batch)
+		U = nef(X_batch)
+		U1, U2 = U.chunk(2, dim=0)
 
 		# estimate the Jacobian: d_sigma/d_theta
 		J_sigma_ = compute_jacobian(nef, X_batch)
 
-		pi = psis_X.T @ K_batch @ psis_X / B / B
+		pi = U1.T @ ((K[idx][:, idx]).diag(diagonal=B//2)[:,None] * U2) / B
 		
 		with torch.no_grad():
 
 			# sigma moving average
 			if sigma is None:
-				sigma = psis_X.T @ psis_X / B
+				sigma = (U1.T @ U1 + U2.T @ U2) / B
 			else:
-				sigma.mul_(momentum).add_(psis_X.T @ psis_X / B, alpha = 1-momentum)
+				sigma.mul_(momentum).add_((U1.T @ U1 + U2.T @ U2) / B, alpha = 1-momentum)
 
 			# sigma's Jacobian moving average
 			if J_sigma is None:
