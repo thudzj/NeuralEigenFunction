@@ -42,7 +42,7 @@ def _objective_grad(xx, obj, grad_loss, grad_eigval, grad_chol):
   del grad_eigval
   del grad_chol
   with tf.name_scope('objective_grad'):
-    chol = tf.cholesky(xx)
+    chol = tf.cholesky(xx + tf.eye(xx.shape.as_list()[0])*1e-3)
     choli = tf.linalg.inv(chol)
     rq = tf.matmul(choli, tf.matmul(obj, choli, transpose_b=True))
 
@@ -58,7 +58,7 @@ def _objective_grad(xx, obj, grad_loss, grad_eigval, grad_chol):
 def _objective(xx, obj):
   """Objective function as custom op so that we can overload gradients."""
   with tf.name_scope('objective'):
-    chol = tf.cholesky(xx)
+    chol = tf.cholesky(xx + tf.eye(xx.shape.as_list()[0])*1e-3)
     choli = tf.linalg.inv(chol)
 
     rq = tf.matmul(choli, tf.matmul(obj, choli, transpose_b=True))

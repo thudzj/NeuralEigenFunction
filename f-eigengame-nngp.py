@@ -33,12 +33,20 @@ class NeuralEigenFunctions(nn.Module):
 		super(NeuralEigenFunctions, self).__init__()
 		self.momentum = momentum
 		self.normalize_over = normalize_over
-		self.fn = ParallelMLP(input_size, output_size, k, num_layers, hidden_size, kernel_type)
+		self.functions = nn.ModuleList()
+		for i in range(k):
+			function = build_mlp_given_config(nonlinearity=kernel_type,
+											  input_size=input_size,
+											  hidden_size=hidden_size,
+											  output_size=output_size,
+											  num_layers=num_layers,
+											  bias=True)
+			self.functions.append(function)
 		self.register_buffer('eigennorm', torch.zeros(k))
 		self.register_buffer('num_calls', torch.Tensor([0]))
 
 	def forward(self, x):
-		ret_raw = self.fn(x).squeeze()
+		ret_raw = torch.cat([f(x) for f in self.functions], 1)
 		if self.training:
 			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
 			with torch.no_grad():
@@ -132,7 +140,6 @@ def main():
 	w_var_list = [2., 2., 2.]
 	b_var_list = [1, 1, 1]
 
-
 	# general settings
 	num_alldata = 1000
 	k = 3
@@ -217,7 +224,7 @@ def main():
 
 	ax = figure.add_subplot(133, projection='3d')
 	ax.set_title("Projected by our method")
-	X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else -X_projected_by_our[:, 0]
+	X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else X_projected_by_our[:, 0]
 	X_projected_by_our_1 = -X_projected_by_our[:, 1] if dataset == 'two_moon' else X_projected_by_our[:, 1]
 	X_projected_by_our_2 = X_projected_by_our[:, 2]
 	ax.scatter(X_projected_by_our_0, X_projected_by_our_1, X_projected_by_our_2, c=y, cmap=cm_bright,

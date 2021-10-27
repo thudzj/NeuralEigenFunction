@@ -67,20 +67,16 @@ FloatTensor = torch.FloatTensor
 	# 	return ret_raw / norm_
 
 class NeuralEigenFunctions(nn.Module):
-	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1, hidden_size=32, num_layers=3, output_size=1,  momentum=0.9, normalize_over=[0], for_spin=False):
+	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1, hidden_size=32, num_layers=3, output_size=1,  momentum=0.9, normalize_over=[0]):
 		super(NeuralEigenFunctions, self).__init__()
 		self.momentum = momentum
 		self.normalize_over = normalize_over
-		self.for_spin = for_spin
 		self.fn = ParallelMLP(input_size, output_size, k, num_layers, hidden_size, nonlinearity)
 		self.register_buffer('eigennorm', torch.zeros(k))
 		self.register_buffer('num_calls', torch.Tensor([0]))
 
 	def forward(self, x):
 		ret_raw = self.fn(x).squeeze()
-		if self.for_spin:
-			return ret_raw
-
 		if self.training:
 			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(
 						np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
@@ -95,7 +91,7 @@ class NeuralEigenFunctions(nn.Module):
 			norm_ = self.eigennorm
 		return ret_raw / norm_
 
-def our(model_class, X, k, kernel, riemannian_projection, max_grad_norm):
+def our(model_class, X, X_val, k, kernel, riemannian_projection, max_grad_norm):
 	lr = 1e-3
 	num_iterations = 2000
 	B = min(128, X.shape[0])
@@ -135,86 +131,11 @@ def our(model_class, X, k, kernel, riemannian_projection, max_grad_norm):
 		scheduler.step()
 	end = timer()
 	nef.eval()
-	return eigenvalues, nef, end - start
+	with torch.no_grad():
+		projections_val = nef(X_val).data.cpu().numpy()
+	return eigenvalues, projections_val, end - start
 
-# def spin_pt(model_class, X, k, kernel):
-# 	lr = 1e-3
-# 	num_iterations = 2000
-# 	B = min(128, X.shape[0])
-# 	K = kernel(X)
-#
-# 	start = timer()
-# 	nef = model_class(k, for_spin=True) #1, output_size=
-# 	optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
-# 	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
-#
-# 	nef.train()
-# 	sigma = None
-# 	J_sigma = None
-# 	eigenvalues = None
-# 	momentum = 0.01
-# 	for ite in range(num_iterations):
-# 		# subsample the data and the kernel matrix
-# 		idx = np.random.choice(X.shape[0], B, replace=False)
-# 		X_batch = X[idx]
-# 		# X1, X2 = X_batch.chunk(2, dim=0)
-#
-# 		# network propagation
-# 		U = nef(X_batch)
-# 		U1, U2 = U.chunk(2, dim=0)
-#
-# 		# estimate the Jacobian: d_sigma/d_theta
-# 		J_sigma_ = compute_jacobian(nef, X_batch)
-#
-# 		pi = U1.T @ ((K[idx][:, idx]).diag(diagonal=B//2)[:,None] * U2) / B
-#
-# 		with torch.no_grad():
-#
-# 			# sigma moving average
-# 			if sigma is None:
-# 				sigma = (U1.T @ U1 + U2.T @ U2) / B
-# 			else:
-# 				sigma.mul_(momentum).add_((U1.T @ U1 + U2.T @ U2) / B, alpha = 1-momentum)
-#
-# 			# sigma's Jacobian moving average
-# 			if J_sigma is None:
-# 				J_sigma = J_sigma_
-# 			else:
-# 				for jac, jac_ in zip(J_sigma, J_sigma_):
-# 					jac.mul_(momentum).add_(jac_, alpha = 1-momentum)
-#
-# 			# estimate the gradients d_l/d_sigma  d_l/d_pi
-# 			choli = torch.linalg.inv(psd_safe_cholesky(sigma))
-# 			rq = choli @ pi @ choli.T
-# 			dl = choli.diag().diag_embed()
-# 			dsigma = choli.T @ (rq @ dl).triu()
-# 			dpi = - choli.T @ dl
-#
-# 			# track eigenvals
-# 			if eigenvalues is None:
-# 				eigenvalues = rq.diag()
-# 			else:
-# 				eigenvalues.mul_(0.9).add_(rq.diag(), alpha = 0.1)
-#
-# 		optimizer.zero_grad()
-# 		# d_l/d_pi * d_pi/d_theta
-# 		pi.backward(dpi)
-# 		for param, jac in zip(list(nef.parameters()), J_sigma):
-# 			# plus d_l/d_sigma * d_sigma/d_theta
-# 			param.grad.add_(torch.tensordot(dsigma, jac, dims=([0, 1], [0, 1])))
-# 		optimizer.step()
-# 		scheduler.step()
-#
-# 	# re-arange the eigenvalues from high to low
-# 	mask = F.one_hot(torch.from_numpy(np.argsort(-eigenvalues.data.cpu().numpy())).long(), k).float().T
-# 	eigenvalues = (eigenvalues[None, :] @ mask).squeeze()
-#
-# 	choli_T = torch.linalg.inv(psd_safe_cholesky(sigma)).T
-# 	nef.eval()
-# 	end = timer()
-# 	return eigenvalues, lambda x: nef(x) @ choli_T @ mask, end - start
-
-def spin_tf(model_class, X, X_val, k, kernel_type):
+def spin_tf(X, X_val, k, kernel_type):
 
 	lr = 1e-3
 	num_iterations = 2000
@@ -228,9 +149,9 @@ def spin_tf(model_class, X, X_val, k, kernel_type):
 
 	start = timer()
 	# Create variables for simple MLP
-	w1 = tf.Variable(tf.random.uniform([k, 32, X.shape[1]], -0.4/math.sqrt(X.shape[1]), 0.4/math.sqrt(X.shape[1])))
-	w2 = tf.Variable(tf.random.uniform([k, 32, 32], -0.4/math.sqrt(32), 0.4/math.sqrt(32)))
-	w3 = tf.Variable(tf.random.uniform([k, 1, 32], -0.4/math.sqrt(32), 0.4/math.sqrt(32)))
+	w1 = tf.Variable(tf.random.normal([k, 32, X.shape[1]], 0, math.sqrt(2./X.shape[1])))
+	w2 = tf.Variable(tf.random.normal([k, 32, 32], 0, math.sqrt(2./32)))
+	w3 = tf.Variable(tf.random.normal([k, 1, 32], 0, math.sqrt(2./32)))
 
 	b1 = tf.Variable(tf.zeros([k, 32, 1]))
 	b2 = tf.Variable(tf.zeros([k, 32, 1]))
@@ -282,7 +203,7 @@ def spin_tf(model_class, X, X_val, k, kernel_type):
 	end = timer()
 	return outputs, end - start
 
-def plot_efs(ax, k, X_val, eigenfuncs_eval_list, label_list, linestyle_list,
+def plot_efs(ax, X_val, eigenfuncs_eval_list, label_list, linestyle_list,
 			 k_lines=3, xlim=[-2., 2.], ylim=[-2., 2.]):
 
 	ax.tick_params(axis='y', which='major', labelsize=12)
@@ -325,11 +246,11 @@ def main():
 	# general settings
 	x_dim = 1
 	x_range = [-2, 2]
-	k = 3
+	k = 10
 	riemannian_projection = False
 	max_grad_norm = None
 	model_class = NeuralEigenFunctions # PolynomialEigenFunctions
-	for kernel_type in ['rbf', 'polynomial']: #, 'periodic_plus_rbf']: #
+	for kernel_type in ['rbf', 'polynomial']: # polynomial rbf #, 'periodic_plus_rbf']: #
 		if kernel_type == 'rbf':
 			kernel = partial(rbf_kernel, 1, 1)
 			ylim = [-2., 2.]
@@ -351,48 +272,49 @@ def main():
 
 		X_val = torch.arange(x_range[0], x_range[1],
 					(x_range[1] - x_range[0]) / 2000.).view(-1, 1)
-		eigenvalues_nystrom_list, eigenfuncs_nystrom_list, cost_nystrom_list = [], [], []
+		# NS = [64, 256, 1024, 4096]
+		NS = [128, 512, 2048, 8192]
+		XS = [torch.empty(NS[-1], x_dim).uniform_(x_range[0], x_range[1])]
+		for N in NS[:-1]:
+			XS.insert(-1, XS[-1][:N])
+
+		eigenvalues_nystrom_list, projections_nystrom_list, cost_nystrom_list = [], [], []
+		eigenvalues_our_list, projections_our_list, cost_our_list = [], [], []
 		projections_spin_list, cost_spin_list = [], []
-		eigenvalues_our_list, nefs_our_list, cost_our_list = [], [], []
-		NS = [64, 256, 1024, 4096]
-		for N in NS:
-			X = torch.empty(N, x_dim).uniform_(x_range[0], x_range[1])
-
-			eigenvalues_nystrom, eigenfuncs_nystrom, c = nystrom(X, k, kernel)
-			eigenvalues_nystrom_list.append(eigenvalues_nystrom)
-			eigenfuncs_nystrom_list.append(eigenfuncs_nystrom)
-			cost_nystrom_list.append(c)
-
-			projections_spin, c = spin_tf(model_class, X, X_val, k, kernel_type)
-			projections_spin_list.append(projections_spin)
-			cost_spin_list.append(c)
-
-			eigenvalues_our, nef, c = our(model_class, X, k, kernel,
+		for X in XS:
+			eigenvalues_our, projections_our, c = our(model_class, X, X_val, k, kernel,
 										  riemannian_projection, max_grad_norm)
 			eigenvalues_our_list.append(eigenvalues_our)
-			nefs_our_list.append(nef)
+			projections_our_list.append(projections_our)
 			cost_our_list.append(c)
+			print("---------{}---------".format(X.shape[0]))
+			print("Eigenvalues estimated by our method:")
+			print(eigenvalues_our_list[-1])
 
-			print("-------------------" + str(N) + "-------------------")
-			# print("Eigenvalues estimated by nystrom method:")
-			# print(eigenvalues_nystrom_list[-1])
-			# print("Eigenvalues estimated by spin:")
-			# print(eigenvalues_spin_list[-1])
-			# print("Eigenvalues estimated by our method:")
-			# print(eigenvalues_our_list[-1])
-			print("Time comparison {} vs. {} vs. {}".format(
-				cost_nystrom_list[-1], cost_spin_list[-1], cost_our_list[-1]))
+		for X in XS:
+			eigenvalues_nystrom, eigenfuncs_nystrom, c = nystrom(X, k, kernel)
+			eigenvalues_nystrom_list.append(eigenvalues_nystrom)
+			projections_nystrom_list.append(eigenfuncs_nystrom(X_val).data.cpu().numpy())
+			cost_nystrom_list.append(c)
+			print("Eigenvalues estimated by nystrom method:")
+			print(eigenvalues_nystrom_list[-1])
+
+		for X in XS:
+			projections_spin, c = spin_tf(X, X_val, k, kernel_type)
+			if kernel_type == 'polynomial' and X.shape[0] == 64:
+				projections_spin = - projections_spin
+			projections_spin_list.append(projections_spin)
+			cost_spin_list.append(c)
 
 		label_list = ['$\hat\psi_{}$ (Nyström)', '$\hat\psi_{}$ (SpIN)', '$\hat\psi_{}$ (our)']
 		linestyle_list = ['solid', 'dotted', 'dashdot']
 		# plots
 		fig = plt.figure(figsize=(25, 4.5))
 		ax = fig.add_subplot(151)
-		with torch.no_grad():
-			plot_efs(ax, k, X_val,
-					 [eigenfuncs_nystrom_list[0](X_val), projections_spin_list[0], nefs_our_list[0](X_val)],
-					 label_list, linestyle_list,
-					 k, x_range, ylim)
+		plot_efs(ax, X_val,
+				 [projections_nystrom_list[0], projections_spin_list[0], projections_our_list[0]],
+				 label_list, linestyle_list,
+				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			# ax.legend(ncol=3, columnspacing=1.2, handletextpad=0.5)
 			ax.text(-1.5, -2.2, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=18)
@@ -402,22 +324,20 @@ def main():
 			ax.set_title(' ', pad=20)
 
 		ax = fig.add_subplot(152)
-		with torch.no_grad():
-			plot_efs(ax, k, X_val,
-					 [eigenfuncs_nystrom_list[1](X_val), projections_spin_list[1], nefs_our_list[1](X_val)],
-					 label_list, linestyle_list,
-					 k, x_range, ylim)
+		plot_efs(ax, X_val,
+				 [projections_nystrom_list[1], projections_spin_list[1], projections_our_list[1]],
+				 label_list, linestyle_list,
+				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[1]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
 
 		ax = fig.add_subplot(153)
-		with torch.no_grad():
-			plot_efs(ax, k, X_val,
-					 [eigenfuncs_nystrom_list[2](X_val), projections_spin_list[2], nefs_our_list[2](X_val)],
-					 label_list, linestyle_list,
-					 k, x_range, ylim)
+		plot_efs(ax, X_val,
+				 [projections_nystrom_list[2], projections_spin_list[2], projections_our_list[2]],
+				 label_list, linestyle_list,
+				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[2]), pad=20)
 		else:
@@ -425,11 +345,10 @@ def main():
 
 		# compare eigenfunctions
 		ax = fig.add_subplot(154)
-		with torch.no_grad():
-			plot_efs(ax, k, X_val,
-					 [eigenfuncs_nystrom_list[3](X_val), projections_spin_list[3], nefs_our_list[3](X_val)],
-					 label_list, linestyle_list,
-					 k, x_range, ylim)
+		plot_efs(ax, X_val,
+				 [projections_nystrom_list[3], projections_spin_list[3], projections_our_list[3]],
+				 label_list, linestyle_list,
+				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[3]), pad=20)
 		else:
@@ -467,50 +386,14 @@ def main():
 			ax.set_title(' ', pad=20)
 
 		if kernel_type == 'rbf':
-			fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=9, fancybox=True, shadow=True, prop={'size':18})
-		fig.tight_layout()
-		fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type),
-					format='pdf', dpi=1000, bbox_inches='tight')
-
-### utils for spin ###
-def _del_nested_attr(obj: nn.Module, names: List[str]) -> None:
-	if len(names) == 1:
-		delattr(obj, names[0])
-	else:
-		_del_nested_attr(getattr(obj, names[0]), names[1:])
-
-def extract_weights(mod: nn.Module) -> Tuple[Tuple[Tensor, ...], List[str]]:
-	orig_params = tuple(mod.parameters())
-	names = []
-	for name, p in list(mod.named_parameters()):
-		_del_nested_attr(mod, name.split("."))
-		names.append(name)
-	params = tuple(p.detach().requires_grad_() for p in orig_params)
-	return params, names
-
-def _set_nested_attr(obj: Module, names: List[str], value: Tensor) -> None:
-	if len(names) == 1:
-		setattr(obj, names[0], value)
-	else:
-		_set_nested_attr(getattr(obj, names[0]), names[1:], value)
-
-def load_weights(mod: Module, names: List[str], params: Tuple[Tensor, ...]) -> None:
-	for name, p in zip(names, params):
-		_set_nested_attr(mod, name.split("."), p)
-
-def compute_jacobian(model, x):
-	jac_model = copy.deepcopy(model)
-	all_params, all_names = extract_weights(jac_model)
-
-	def sigma(model, x, names, params):
-		load_weights(model, names, params)
-		out = model(x)
-		U1, U2 = out.chunk(2, dim=0)
-		return (U1.T @ U1 + U2.T @ U2) / out.shape[0]
-
-	jacs = torch.autograd.functional.jacobian(lambda *params: sigma(jac_model, x, all_names, params),
-										all_params, strict=True, vectorize=False)
-	return jacs
+			fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.08), ncol=9, fancybox=True, shadow=True, prop={'size':16})
+			fig.tight_layout()
+			fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type),
+						format='pdf', dpi=1000, bbox_inches='tight')
+		else:
+			fig.tight_layout()
+			fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type),
+						format='pdf', dpi=1000, bbox_inches='tight')
 
 if __name__ == '__main__':
 	main()

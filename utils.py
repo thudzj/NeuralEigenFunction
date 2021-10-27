@@ -172,9 +172,9 @@ class SinAndCos(torch.nn.Module):
 		super(SinAndCos, self).__init__()
 
 	def forward(self, x):
-		assert x.shape[-1] % 2 == 0
-		x1, x2 = x.chunk(2, dim=-1)
-		return torch.cat([torch.sin(x1), torch.cos(x2)], -1)
+		assert x.shape[1] % 2 == 0
+		x1, x2 = x.chunk(2, dim=1)
+		return torch.cat([torch.sin(x1), torch.cos(x2)], 1)
 
 def build_mlp_given_config(**kwargs):
 	if kwargs['nonlinearity'] == 'relu':
@@ -388,18 +388,17 @@ class ParallelLinear(nn.Module):
 	def __init__(self, in_features, out_features, num_copies):
 		super(ParallelLinear, self).__init__()
 		self.register_parameter('weight', nn.Parameter(torch.randn(num_copies, out_features, in_features)))
-		self.register_parameter('bias', nn.Parameter(torch.zeros(num_copies, 1, out_features)))
+		self.register_parameter('bias', nn.Parameter(torch.zeros(num_copies, out_features, 1)))
 
 		for i in range(num_copies):
-			# nn.init.kaiming_uniform_(self.weight[i], a=math.sqrt(5))
-			nn.init.uniform_(self.weight[i], -0.4/math.sqrt(in_features), 0.4/math.sqrt(in_features))
-		# nn.init.uniform_(self.bias, -1 / math.sqrt(in_features), 1 / math.sqrt(in_features))
+			nn.init.normal_(self.weight[i], 0, math.sqrt(2./in_features))
 		nn.init.zeros_(self.bias)
 
 	def forward(self, x):
 		if x.dim() == 2:
-			x = x.unsqueeze(0)
-		return (self.weight @ x.permute(0, 2, 1)).permute(0, 2, 1) + self.bias
+			return torch.tensordot(self.weight, x, [[2], [1]]) + self.bias
+		else:
+			return self.weight @ x + self.bias
 
 class ParallelMLP(nn.Module):
 	def __init__(self, in_features, out_features, num_copies, num_layers, hidden_size=64, nonlinearity='relu'):
@@ -425,11 +424,11 @@ class ParallelMLP(nn.Module):
 					  ParallelLinear(hidden_size, out_features, num_copies)]
 			for _ in range(num_layers - 2):
 				layers.insert(2, nonlinearity())
-				layers.insert(2, nn.Linear(hidden_size, hidden_size, num_copies))
+				layers.insert(2, ParallelLinear(hidden_size, hidden_size, num_copies))
 			self.fn = nn.Sequential(*layers)
 
 	def forward(self, x):
-		return self.fn(x).permute(1, 2, 0)
+		return self.fn(x).permute(2, 1, 0)
 
 def data_transform(x):
 	return x.flatten().mul_(2).sub_(1)
