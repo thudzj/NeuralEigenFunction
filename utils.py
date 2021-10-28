@@ -6,6 +6,7 @@ from timeit import default_timer as timer
 from functools import partial
 
 import numpy as np
+import scipy
 from sklearn import metrics
 
 import torch
@@ -130,10 +131,12 @@ def periodic_plus_rbf_kernel(period, output_scale1, length_scale1, output_scale2
 def nystrom(X, k, kernel):
 	start = timer()
 	K = kernel(X)
-	p, q = torch.symeig(K, eigenvectors=True)
-	eigenvalues_nystrom = p[range(-1, -(k+1), -1)] / X.shape[0]
-	eigenfuncs_nystrom = lambda x: kernel(x, X) @ q[:, range(-1, -(k+1), -1)] \
-									 / p[range(-1, -(k+1), -1)] * math.sqrt(X.shape[0])
+	p, q = scipy.linalg.eigh(K.data.cpu().numpy(), subset_by_index=[K.shape[0]-k, K.shape[0]-1])
+	p = torch.from_numpy(p).float()[range(-1, -(k+1), -1)]
+	q = torch.from_numpy(q).float()[:, range(-1, -(k+1), -1)]
+	# p, q = torch.symeig(K, eigenvectors=True)
+	eigenvalues_nystrom = p / X.shape[0]
+	eigenfuncs_nystrom = lambda x: kernel(x, X) @ q / p * math.sqrt(X.shape[0])
 	end = timer()
 	return eigenvalues_nystrom, eigenfuncs_nystrom, end - start
 

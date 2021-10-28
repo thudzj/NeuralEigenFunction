@@ -209,7 +209,7 @@ def main():
 
 	ax = figure.add_subplot(132, projection='3d')
 	ax.set_title("Projected by Nyström method")
-	X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0]
+	X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0] if dataset == 'two_moon' else -X_projected_by_nystrom[:, 0]
 	X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
 	X_projected_by_nystrom_2 = X_projected_by_nystrom[:, 2]
 	ax.scatter3D(X_projected_by_nystrom_0, X_projected_by_nystrom_1, X_projected_by_nystrom_2, c=y, cmap=cm_bright,
