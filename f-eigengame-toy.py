@@ -1,3 +1,4 @@
+# g20: CUDA_VISIBLE_DEVICES=2 python f-eigengame-toy.py
 import math
 from typing import List, Tuple
 from functools import partial
@@ -91,15 +92,17 @@ class NeuralEigenFunctions(nn.Module):
 			norm_ = self.eigennorm
 		return ret_raw / norm_
 
-def our(model_class, X, X_val, k, kernel, riemannian_projection, max_grad_norm):
+def our(model_class, X_, X_val_, k, kernel, riemannian_projection, max_grad_norm):
+	X = X_.cuda()
+	X_val = X_val_.cuda()
 	lr = 1e-3
 	num_iterations = 2000
-	B = min(128, X.shape[0])
+	B = min(256, X.shape[0])
 	K = kernel(X)
 
 	# perform our method
 	start = timer()
-	nef = model_class(k)
+	nef = model_class(k).cuda()
 	optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
 	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_iterations)
 
@@ -133,13 +136,13 @@ def our(model_class, X, X_val, k, kernel, riemannian_projection, max_grad_norm):
 	nef.eval()
 	with torch.no_grad():
 		projections_val = nef(X_val).data.cpu().numpy()
-	return eigenvalues, projections_val, end - start
+	return eigenvalues.data.cpu(), projections_val, end - start
 
 def spin_tf(X, X_val, k, kernel_type):
 
 	lr = 1e-3
 	num_iterations = 2000
-	B = min(128, X.shape[0])
+	B = min(256, X.shape[0])
 
 	if kernel_type == 'rbf':
 		kernel = lambda x, y: tf.exp(-(tf.norm(x-y, axis=1, keepdims=True)**2)/2.)
@@ -273,7 +276,7 @@ def main():
 		X_val = torch.arange(x_range[0], x_range[1],
 					(x_range[1] - x_range[0]) / 2000.).view(-1, 1)
 		# NS = [64, 256, 1024, 4096]
-		NS = [128, 512, 2048, 8192]
+		NS = [64, 512, 8192]
 		XS = [torch.empty(NS[-1], x_dim).uniform_(x_range[0], x_range[1])]
 		for N in NS[:-1]:
 			XS.insert(-1, XS[-1][:N])
@@ -309,21 +312,21 @@ def main():
 		label_list = ['$\hat\psi_{}$ (Nyström)', '$\hat\psi_{}$ (SpIN)', '$\hat\psi_{}$ (our)']
 		linestyle_list = ['solid', 'dotted', 'dashdot']
 		# plots
-		fig = plt.figure(figsize=(25, 4.5))
-		ax = fig.add_subplot(151)
+		fig = plt.figure(figsize=(5*len(NS) + 5, 4))
+		ax = fig.add_subplot(141)
 		plot_efs(ax, X_val,
 				 [projections_nystrom_list[0], projections_spin_list[0], projections_our_list[0]],
 				 label_list, linestyle_list,
 				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			# ax.legend(ncol=3, columnspacing=1.2, handletextpad=0.5)
-			ax.text(-1.5, -2.2, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=18)
+			ax.text(-1.5, -2.7, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=16)
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[0]), pad=20)
 		else:
-			ax.text(-3.1, -2., '$\\kappa(x, x\')=exp(-||x - x\'||^2/2)$', rotation=90, fontsize=18)
+			ax.text(-3.1, -2.3, '$\\kappa(x, x\')=exp(-||x - x\'||^2/2)$', rotation=90, fontsize=16)
 			ax.set_title(' ', pad=20)
 
-		ax = fig.add_subplot(152)
+		ax = fig.add_subplot(142)
 		plot_efs(ax, X_val,
 				 [projections_nystrom_list[1], projections_spin_list[1], projections_our_list[1]],
 				 label_list, linestyle_list,
@@ -333,7 +336,18 @@ def main():
 		else:
 			ax.set_title(' ', pad=20)
 
-		ax = fig.add_subplot(153)
+		# ax = fig.add_subplot(143)
+		# plot_efs(ax, X_val,
+		# 		 [projections_nystrom_list[2], projections_spin_list[2], projections_our_list[2]],
+		# 		 label_list, linestyle_list,
+		# 		 3, x_range, ylim)
+		# if kernel_type != 'rbf':
+		# 	ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[2]), pad=20)
+		# else:
+		# 	ax.set_title(' ', pad=20)
+
+		# compare eigenfunctions
+		ax = fig.add_subplot(143)
 		plot_efs(ax, X_val,
 				 [projections_nystrom_list[2], projections_spin_list[2], projections_our_list[2]],
 				 label_list, linestyle_list,
@@ -342,20 +356,9 @@ def main():
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[2]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
-
-		# compare eigenfunctions
-		ax = fig.add_subplot(154)
-		plot_efs(ax, X_val,
-				 [projections_nystrom_list[3], projections_spin_list[3], projections_our_list[3]],
-				 label_list, linestyle_list,
-				 3, x_range, ylim)
-		if kernel_type != 'rbf':
-			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[3]), pad=20)
-		else:
-			ax.set_title(' ', pad=20)
 		handles, labels = ax.get_legend_handles_labels()
 
-		ax = fig.add_subplot(155)
+		ax = fig.add_subplot(144)
 		ax.tick_params(axis='y', which='major', labelsize=12)
 		ax.tick_params(axis='y', which='minor', labelsize=12)
 		ax.tick_params(axis='x', which='major', labelsize=12)
