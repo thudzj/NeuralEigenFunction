@@ -16,6 +16,10 @@ import seaborn as sns
 
 import random
 import numpy as np
+
+import tensorflow as tf
+import spectral_inference_networks as spin
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -86,6 +90,7 @@ def our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection
 	# perform our method
 	start = timer()
 	nef = NeuralEigenFunctions(k, kernel_type, X.shape[-1], hidden_size, num_layers)
+	print(nef.functions[0])
 	if optimizer_type == 'Adam':
 		optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
 	elif optimizer_type == 'RMSprop':
@@ -125,6 +130,70 @@ def our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection
 	end = timer()
 	# print("Our method consumes {}s".format(end - start))
 	return eigenvalues_our, nef, end - start
+
+def spin_tf(X, X_val, k, kernel):
+
+	lr = 1e-3
+	num_iterations = 2000
+	B = min(128, X.shape[0])
+
+	linop = spin.KernelOperator(kernel)
+
+	start = timer()
+	# Create variables for simple MLP
+	w1 = tf.Variable(tf.random.normal([k, 32, X.shape[1]], 0, math.sqrt(2./X.shape[1])))
+	w2 = tf.Variable(tf.random.normal([k, 32, 32], 0, math.sqrt(2./32)))
+	w3 = tf.Variable(tf.random.normal([k, 1, 32], 0, math.sqrt(2./32)))
+
+	b1 = tf.Variable(tf.zeros([k, 32, 1]))
+	b2 = tf.Variable(tf.zeros([k, 32, 1]))
+	b3 = tf.Variable(tf.zeros([k, 1, 1]))
+
+	# Create function to construct simple MLP
+	def network(x):
+	  h1 = tf.tensordot(w1, x, [[2], [1]]) + b1
+	  h1_1, h1_2 = tf.split(h1, 2, axis=1)
+	  h1_act = tf.concat([tf.math.sin(h1_1), tf.math.cos(h1_2)], 1)
+
+	  h2 = tf.matmul(w2, h1_act) + b2
+	  h2_1, h2_2 = tf.split(h2, 2, axis=1)
+	  h2_act = tf.concat([tf.math.sin(h2_1), tf.math.cos(h2_2)], 1)
+
+	  h3 = tf.matmul(w3, h2_act) + b3
+	  return tf.squeeze(tf.transpose(h3, perm=[2, 1, 0]))
+
+	optim = tf.train.AdamOptimizer(learning_rate=lr)
+	# Constructs the internal training ops for spectral inference networks.
+	spectral_net = spin.SpectralNetwork(
+	    linop,
+	    network,
+	    X,
+	    [w1, w2, w3, b1, b2, b3],
+		B, decay=0.99)
+
+	# Trivial defaults for logging and stats hooks.
+	logging_config = {
+	    'config': {},
+	    'log_image_every': 100000000,
+	    'save_params_every': 100000000,
+	    'saver_path': './tmp',
+	    'saver_name': 'example',
+	}
+
+	stats_hooks = {
+	    'create': spin.util.create_default_stats,
+	    'update': spin.util.update_default_stats,
+	}
+
+	# Executes the training of spectral inference networks.
+	stats, outputs = spectral_net.train(
+	    optim,
+	    num_iterations,
+	    logging_config,
+	    stats_hooks,
+		data_for_plotting = tf.constant(X_val))
+	end = timer()
+	return outputs, end - start
 
 def main():
 	# set random seed
@@ -166,7 +235,7 @@ def main():
 	figure = plt.figure(figsize=(15, 5))
 	cm = plt.cm.RdBu
 	cm_bright = ListedColormap(['#FF0000', '#0000FF'])
-	ax = figure.add_subplot(131)
+	ax = figure.add_subplot(141)
 	ax.set_title("Input data")
 	# Plot the training points
 	ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm_bright,
@@ -194,11 +263,12 @@ def main():
 
 	eigenvalues_nystrom, eigenfuncs_nystrom, c_nystrom = nystrom(X, k, kernel)
 	eigenvalues_our, nef, c_our = our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection, max_grad_norm)
+	X_projected_by_spin, c_spin = spin_tf(X, X, k, kernel)
 	print("Eigenvalues estimated by nystrom method:")
 	print(eigenvalues_nystrom)
 	print("Eigenvalues estimated by our method:")
 	print(eigenvalues_our)
-	print("Time comparison {} vs. {}".format(c_nystrom, c_our))
+	print("Time comparison {} vs. {} vs. {}".format(c_nystrom, c_our, c_spin))
 
 	nef.eval()
 	with torch.no_grad():
@@ -206,8 +276,9 @@ def main():
 		X_projected_by_our = nef(X)
 		print(X_projected_by_nystrom[: 5])
 		print(X_projected_by_our[: 5])
+		print(X_projected_by_spin[: 5])
 
-	ax = figure.add_subplot(132, projection='3d')
+	ax = figure.add_subplot(142, projection='3d')
 	ax.set_title("Projected by Nyström method")
 	X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0] if dataset == 'two_moon' else -X_projected_by_nystrom[:, 0]
 	X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
@@ -222,12 +293,27 @@ def main():
 	plt.setp( ax.get_yticklabels(), visible=False)
 	plt.setp( ax.get_zticklabels(), visible=False)
 
-	ax = figure.add_subplot(133, projection='3d')
+	ax = figure.add_subplot(143, projection='3d')
 	ax.set_title("Projected by our method")
 	X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else X_projected_by_our[:, 0]
 	X_projected_by_our_1 = -X_projected_by_our[:, 1] if dataset == 'two_moon' else X_projected_by_our[:, 1]
 	X_projected_by_our_2 = X_projected_by_our[:, 2]
 	ax.scatter(X_projected_by_our_0, X_projected_by_our_1, X_projected_by_our_2, c=y, cmap=cm_bright,
+			   edgecolors='k')
+	# ax.set_xticks(())
+	# ax.set_yticks(())
+	# ax.set_zticks(())
+	ax.grid(True)
+	plt.setp( ax.get_xticklabels(), visible=False)
+	plt.setp( ax.get_yticklabels(), visible=False)
+	plt.setp( ax.get_zticklabels(), visible=False)
+
+	ax = figure.add_subplot(144, projection='3d')
+	ax.set_title("Projected by SpIN")
+	X_projected_by_spin_0 = -X_projected_by_spin[:, 0] if dataset == 'two_moon' else X_projected_by_spin[:, 0]
+	X_projected_by_spin_1 = -X_projected_by_spin[:, 1] if dataset == 'two_moon' else X_projected_by_spin[:, 1]
+	X_projected_by_spin_2 = X_projected_by_spin[:, 2]
+	ax.scatter(X_projected_by_spin_0, X_projected_by_spin_1, X_projected_by_spin_2, c=y, cmap=cm_bright,
 			   edgecolors='k')
 	# ax.set_xticks(())
 	# ax.set_yticks(())

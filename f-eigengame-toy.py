@@ -179,7 +179,7 @@ def spin_tf(X, X_val, k, kernel_type):
 	    linop,
 	    network,
 	    X,
-	    [w1, w2, b1, b2],
+	    [w1, w2, w3, b1, b2, b3],
 		B, decay=0.99)
 
 	# Trivial defaults for logging and stats hooks.
