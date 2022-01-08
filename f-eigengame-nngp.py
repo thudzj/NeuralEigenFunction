@@ -224,7 +224,7 @@ def main():
 	riemannian_projection = False
 	max_grad_norm = None
 	# dataset settings
-	dataset = 'two_moon'
+	dataset = 'circles'
 	if dataset == 'two_moon':
 		X, y = make_moons(num_alldata, noise=0.04, random_state=seed)
 		kernel_type = 'relu'
@@ -244,7 +244,7 @@ def main():
 	figure = plt.figure(figsize=(15, 5))
 	cm = plt.cm.RdBu
 	cm_bright = ListedColormap(['#FF0000', '#0000FF'])
-	ax = figure.add_subplot(141)
+	ax = figure.add_subplot(131)
 	ax.set_title("Input data")
 	# Plot the training points
 	ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm_bright,
@@ -287,22 +287,22 @@ def main():
 
 	X_projected_by_spin, c_spin = spin_tf(X, X, k, kernel, kernel_type)
 
-	ax = figure.add_subplot(142, projection='3d')
-	ax.set_title("Projected by Nyström method")
-	X_projected_by_nystrom_0 = X_projected_by_nystrom[:, 0] if dataset == 'two_moon' else -X_projected_by_nystrom[:, 0]
-	X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
-	X_projected_by_nystrom_2 = X_projected_by_nystrom[:, 2]
-	ax.scatter3D(X_projected_by_nystrom_0, X_projected_by_nystrom_1, X_projected_by_nystrom_2, c=y, cmap=cm_bright,
-			   edgecolors='k')
-	# ax.set_xticks(())
-	# ax.set_yticks(())
-	# ax.set_zticks(())
-	ax.grid(True)
-	plt.setp( ax.get_xticklabels(), visible=False)
-	plt.setp( ax.get_yticklabels(), visible=False)
-	plt.setp( ax.get_zticklabels(), visible=False)
+	# ax = figure.add_subplot(142, projection='3d')
+	# ax.set_title("Projected by Nyström method")
+	# X_projected_by_nystrom_0 = -X_projected_by_nystrom[:, 0] if dataset == 'two_moon' else -X_projected_by_nystrom[:, 0]
+	# X_projected_by_nystrom_1 = X_projected_by_nystrom[:, 1]
+	# X_projected_by_nystrom_2 = X_projected_by_nystrom[:, 2]
+	# ax.scatter3D(X_projected_by_nystrom_0, X_projected_by_nystrom_1, X_projected_by_nystrom_2, c=y, cmap=cm_bright,
+	# 		   edgecolors='k')
+	# # ax.set_xticks(())
+	# # ax.set_yticks(())
+	# # ax.set_zticks(())
+	# ax.grid(True)
+	# plt.setp( ax.get_xticklabels(), visible=False)
+	# plt.setp( ax.get_yticklabels(), visible=False)
+	# plt.setp( ax.get_zticklabels(), visible=False)
 
-	ax = figure.add_subplot(143, projection='3d')
+	ax = figure.add_subplot(132, projection='3d')
 	ax.set_title("Projected by our method")
 	X_projected_by_our_0 = -X_projected_by_our[:, 0] if dataset == 'two_moon' else X_projected_by_our[:, 0]
 	X_projected_by_our_1 = -X_projected_by_our[:, 1] if dataset == 'two_moon' else X_projected_by_our[:, 1]
@@ -317,10 +317,10 @@ def main():
 	plt.setp( ax.get_yticklabels(), visible=False)
 	plt.setp( ax.get_zticklabels(), visible=False)
 
-	ax = figure.add_subplot(144, projection='3d')
+	ax = figure.add_subplot(133, projection='3d')
 	ax.set_title("Projected by SpIN")
 	X_projected_by_spin_0 = X_projected_by_spin[:, 0] if dataset == 'two_moon' else X_projected_by_spin[:, 0]
-	X_projected_by_spin_1 = -X_projected_by_spin[:, 1] if dataset == 'two_moon' else -X_projected_by_spin[:, 1]
+	X_projected_by_spin_1 = -X_projected_by_spin[:, 1] if dataset == 'two_moon' else X_projected_by_spin[:, 1]
 	X_projected_by_spin_2 = X_projected_by_spin[:, 2]
 	ax.scatter(X_projected_by_spin_0, X_projected_by_spin_1, X_projected_by_spin_2, c=y, cmap=cm_bright,
 			   edgecolors='k')
