@@ -4,6 +4,8 @@ import math
 import numpy as np
 import importlib
 import torch
+
+import tensorflow as tf
 #
 # import neural_tangents as nt
 # from neural_tangents import stax
@@ -67,6 +69,24 @@ class NNGPKernel:
 			return K[:-X2.shape[0], -X2.shape[0]:]
 		else:
 			return K
+
+	def make_relu_kernel_tf(self):
+		def __relu_kernel_tf(X, X2=None):
+			if X2 is not None:
+				X = tf.concat([X, X2], 0)
+
+			K = tf.matmul(X, X, transpose_b=True) / tf.cast(X.shape[-1], tf.float32) * self.w_var_list[0] + self.b_var_list[0]
+			for i in range(1, len(self.w_var_list)):
+				K_diag_sqrt = tf.linalg.tensor_diag_part(K) ** 0.5
+				normalizer = tf.reshape(K_diag_sqrt, [-1, 1]) @ tf.reshape(K_diag_sqrt, [1, -1])
+				Theta = tf.math.acos(tf.clip_by_value(K / normalizer, clip_value_min=-1., clip_value_max=1.))
+				K = (tf.math.sin(Theta) + (np.pi-Theta) * tf.math.cos(Theta)) * normalizer / (2*np.pi) * self.w_var_list[i] + self.b_var_list[i]
+			if X2 is not None:
+				return tf.expand_dims(tf.linalg.tensor_diag_part(K[:X2.shape[0], X2.shape[0]:]), -1)
+			else:
+				return tf.expand_dims(tf.linalg.tensor_diag_part(K), -1)
+		return __relu_kernel_tf
+
 
 	def __Lrelu_kernel(self, X, X2=None, a=0.2):
 		# leaky relu kernel from Tsuchida, 2018, eq. 6
@@ -169,6 +189,25 @@ class NNGPKernel:
 			return K[:-X2.shape[0], -X2.shape[0]:]
 		else:
 			return K
+
+	def make_erf_kernel_tf(self):
+		def __erf_kernel_tf(X, X2=None):
+			print(X, X2)
+			if X2 is not None:
+				X = tf.concat([X, X2], 0)
+
+			K = tf.matmul(X, X, transpose_b=True) / tf.cast(X.shape[-1], tf.float32) * self.w_var_list[0] + self.b_var_list[0]
+			for i in range(1, len(self.w_var_list)):
+				K = K * 2
+				K_diag_sqrt = (tf.linalg.tensor_diag_part(K) + 1.) ** 0.5
+				normalizer = tf.reshape(K_diag_sqrt, [-1, 1]) @ tf.reshape(K_diag_sqrt, [1, -1])
+				Theta = tf.math.asin(tf.clip_by_value(K / normalizer, clip_value_min=-1., clip_value_max=1.))
+				K = Theta * 2 / np.pi * self.w_var_list[i] + self.b_var_list[i]
+			if X2 is not None:
+				return tf.expand_dims(tf.linalg.tensor_diag_part(K[:X2.shape[0], X2.shape[0]:]), -1)
+			else:
+				return tf.expand_dims(tf.linalg.tensor_diag_part(K), -1)
+		return __erf_kernel_tf
 
 	@torch.no_grad()
 	def __call__(self, X, X2=None):

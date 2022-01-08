@@ -131,13 +131,14 @@ def our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection
 	# print("Our method consumes {}s".format(end - start))
 	return eigenvalues_our, nef, end - start
 
-def spin_tf(X, X_val, k, kernel):
+def spin_tf(X, X_val, k, kernel, kernel_type):
 
 	lr = 1e-3
 	num_iterations = 2000
 	B = min(128, X.shape[0])
 
-	linop = spin.KernelOperator(kernel)
+	linop = spin.KernelOperator(kernel.make_relu_kernel_tf() 
+		if kernel_type == 'relu' else kernel.make_erf_kernel_tf())
 
 	start = timer()
 	# Create variables for simple MLP
@@ -152,12 +153,20 @@ def spin_tf(X, X_val, k, kernel):
 	# Create function to construct simple MLP
 	def network(x):
 	  h1 = tf.tensordot(w1, x, [[2], [1]]) + b1
-	  h1_1, h1_2 = tf.split(h1, 2, axis=1)
-	  h1_act = tf.concat([tf.math.sin(h1_1), tf.math.cos(h1_2)], 1)
+	  if kernel_type == 'erf':
+		  h1_act = tf.math.erf(h1)
+	  elif kernel_type == 'relu':
+		  h1_act = tf.nn.relu(h1)
+	  else:
+		  raise NotImplementedError
 
 	  h2 = tf.matmul(w2, h1_act) + b2
-	  h2_1, h2_2 = tf.split(h2, 2, axis=1)
-	  h2_act = tf.concat([tf.math.sin(h2_1), tf.math.cos(h2_2)], 1)
+	  if kernel_type == 'erf':
+		  h2_act = tf.math.erf(h2)
+	  elif kernel_type == 'relu':
+		  h2_act = tf.nn.relu(h2)
+	  else:
+		  raise NotImplementedError
 
 	  h3 = tf.matmul(w3, h2_act) + b3
 	  return tf.squeeze(tf.transpose(h3, perm=[2, 1, 0]))
@@ -215,7 +224,7 @@ def main():
 	riemannian_projection = False
 	max_grad_norm = None
 	# dataset settings
-	dataset = 'circles'
+	dataset = 'two_moon'
 	if dataset == 'two_moon':
 		X, y = make_moons(num_alldata, noise=0.04, random_state=seed)
 		kernel_type = 'relu'
@@ -260,15 +269,14 @@ def main():
 	ax.spines['bottom'].set_visible(False)
 	ax.set_axisbelow(True)
 
-
 	eigenvalues_nystrom, eigenfuncs_nystrom, c_nystrom = nystrom(X, k, kernel)
 	eigenvalues_our, nef, c_our = our(X, k, kernel, kernel_type, w_var_list, b_var_list, riemannian_projection, max_grad_norm)
-	X_projected_by_spin, c_spin = spin_tf(X, X, k, kernel)
+	
 	print("Eigenvalues estimated by nystrom method:")
 	print(eigenvalues_nystrom)
 	print("Eigenvalues estimated by our method:")
 	print(eigenvalues_our)
-	print("Time comparison {} vs. {} vs. {}".format(c_nystrom, c_our, c_spin))
+	print("Time comparison {} vs. {}".format(c_nystrom, c_our))
 
 	nef.eval()
 	with torch.no_grad():
@@ -276,7 +284,8 @@ def main():
 		X_projected_by_our = nef(X)
 		print(X_projected_by_nystrom[: 5])
 		print(X_projected_by_our[: 5])
-		print(X_projected_by_spin[: 5])
+
+	X_projected_by_spin, c_spin = spin_tf(X, X, k, kernel, kernel_type)
 
 	ax = figure.add_subplot(142, projection='3d')
 	ax.set_title("Projected by Nyström method")
@@ -310,8 +319,8 @@ def main():
 
 	ax = figure.add_subplot(144, projection='3d')
 	ax.set_title("Projected by SpIN")
-	X_projected_by_spin_0 = -X_projected_by_spin[:, 0] if dataset == 'two_moon' else X_projected_by_spin[:, 0]
-	X_projected_by_spin_1 = -X_projected_by_spin[:, 1] if dataset == 'two_moon' else X_projected_by_spin[:, 1]
+	X_projected_by_spin_0 = X_projected_by_spin[:, 0] if dataset == 'two_moon' else X_projected_by_spin[:, 0]
+	X_projected_by_spin_1 = -X_projected_by_spin[:, 1] if dataset == 'two_moon' else -X_projected_by_spin[:, 1]
 	X_projected_by_spin_2 = X_projected_by_spin[:, 2]
 	ax.scatter(X_projected_by_spin_0, X_projected_by_spin_1, X_projected_by_spin_2, c=y, cmap=cm_bright,
 			   edgecolors='k')
