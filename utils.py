@@ -619,7 +619,8 @@ def binary_classification_given_uncertainty(uncs_id, uncs_ood, file_name, revers
 	sns.kdeplot(uncs_id.data.cpu().numpy(), shade=True, color="r", label='In-distribution')
 	sns.kdeplot(uncs_ood.data.cpu().numpy(), shade=True, color="b", label='Out-of-distribution')
 	ax.text(0.3, 0.7, 'AUPR: {:.4f}'.format(auroc), fontsize=18, transform=ax.transAxes)
-	plt.legend(loc='center right')
+	if 'ntkunc' in file_name:
+		plt.legend(loc='center right')
 	plt.savefig(file_name, format='pdf', dpi=600, bbox_inches='tight')
 
 	print("\tAUPR is {:.4f}".format(auroc))

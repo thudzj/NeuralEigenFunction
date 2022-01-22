@@ -187,33 +187,33 @@ def main():
 	num_params = sum(p.numel() for p in classifier.parameters())
 	print("Number of parameters:", num_params)
 	validate(args, val_loader, classifier)
-	kfac_laplace_validate(args, val_loader, classifier)
-
-	ground_truth_NTK, ground_truth_NTK_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
-	NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
-	print("---------", 'ground truth NTK on training data', "---------")
-	print(ground_truth_NTK[:10, :10].data.numpy())
-	print("---------", 'NTK estimated by sampling on training data', "---------")
-	print((NTK_samples[:, :10].T @ NTK_samples[:, :10] / args.num_samples).data.cpu().numpy())
-
-	scale_ = ((NTK_samples/math.sqrt(args.num_samples)).norm(dim=0)**2).mean().item()
-	NTK_samples /= math.sqrt(scale_)
-	ground_truth_NTK /= scale_
-	ground_truth_NTK_val /= scale_
-
-	print('Distance between gd NTK and estimated NTK: noise {}, eps {}, scale {}, dist {}'.format(
-		args.random_dist_type, args.epsilon, scale_,
-		torch.dist(ground_truth_NTK[:100, :100],
-				   NTK_samples[:, :100].T @ NTK_samples[:, :100] / args.num_samples).item()))
+	# kfac_laplace_validate(args, val_loader, classifier)
+	#
+	# ground_truth_NTK, ground_truth_NTK_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
+	# NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
+	# print("---------", 'ground truth NTK on training data', "---------")
+	# print(ground_truth_NTK[:10, :10].data.numpy())
+	# print("---------", 'NTK estimated by sampling on training data', "---------")
+	# print((NTK_samples[:, :10].T @ NTK_samples[:, :10] / args.num_samples).data.cpu().numpy())
+	#
+	# scale_ = ((NTK_samples/math.sqrt(args.num_samples)).norm(dim=0)**2).mean().item()
+	# NTK_samples /= math.sqrt(scale_)
+	# ground_truth_NTK /= scale_
+	# ground_truth_NTK_val /= scale_
+	#
+	# print('Distance between gd NTK and estimated NTK: noise {}, eps {}, scale {}, dist {}'.format(
+	# 	args.random_dist_type, args.epsilon, scale_,
+	# 	torch.dist(ground_truth_NTK[:100, :100],
+	# 			   NTK_samples[:, :100].T @ NTK_samples[:, :100] / args.num_samples).item()))
 
 	nef = NeuralEigenFunctions(args.nef_k, args.nef_arch, args.nef_in_planes, args.num_classes, args.nef_no_bn, args.nef_share).cuda()
-	eigenvalues = train_nef(
-		args, nef, NTK_samples, nef_train_loader,
-		args.nef_k, args.nef_epochs, args.nef_optimizer_type,
-		args.nef_lr, args.nef_momentum,
-		args.nef_riemannian_projection,
-		args.nef_max_grad_norm, args.nef_amp,
-		nef_train_val_loader, val_loader, ground_truth_NTK_val)
+	# eigenvalues = train_nef(
+	# 	args, nef, NTK_samples, nef_train_loader,
+	# 	args.nef_k, args.nef_epochs, args.nef_optimizer_type,
+	# 	args.nef_lr, args.nef_momentum,
+	# 	args.nef_riemannian_projection,
+	# 	args.nef_max_grad_norm, args.nef_amp,
+	# 	nef_train_val_loader, val_loader, ground_truth_NTK_val)
 
 	if args.draw:
 		draw_eigenvalues(args, eigenvalues, ground_truth_NTK)
@@ -247,8 +247,8 @@ def main():
 			draw_kernel(args, [NTK_val_our.numpy(), NTK_val_MC.numpy(), ground_truth_NTK_val.numpy()], diag,
 						['Our ($k=10$)', 'Random feature approach ($S=10$)', 'Ground truth'], 'last')
 
-	# nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
-	# eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
+	nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
+	eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
 
 	if args.num_classes == 2:
 		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val)
