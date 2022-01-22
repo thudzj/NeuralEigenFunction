@@ -611,17 +611,18 @@ def binary_classification_given_uncertainty(uncs_id, uncs_ood, file_name, revers
 	if reverse:
 		y = 1 - y
 	x = torch.cat([uncs_id, uncs_ood]).data.cpu().numpy()
-	fpr, tpr, thresholds = metrics.roc_curve(y, x)
-	auroc = metrics.auc(fpr, tpr)
+	fpr, tpr, thresholds = metrics.precision_recall_curve(y, x)
+	auroc = metrics.average_precision_score(y, x)
 
 	fig = plt.figure(figsize=(5, 4))
 	ax = fig.add_subplot(1, 1, 1)
 	sns.kdeplot(uncs_id.data.cpu().numpy(), shade=True, color="r", label='In-distribution')
 	sns.kdeplot(uncs_ood.data.cpu().numpy(), shade=True, color="b", label='Out-of-distribution')
-	ax.text(0.3, 0.7, 'AUROC: {:.4f}'.format(auroc), fontsize=18, transform=ax.transAxes)
+	ax.text(0.3, 0.7, 'AUPR: {:.4f}'.format(auroc), fontsize=18, transform=ax.transAxes)
+	plt.legend(loc='center right')
 	plt.savefig(file_name, format='pdf', dpi=600, bbox_inches='tight')
 
-	print("\tAUROC is {:.4f}".format(auroc))
+	print("\tAUPR is {:.4f}".format(auroc))
 	return auroc
 
 def fuse_single_conv_bn_pair(block1, block2):

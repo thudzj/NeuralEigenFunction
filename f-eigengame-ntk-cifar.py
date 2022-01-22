@@ -8,18 +8,27 @@ CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-pl
 	Clustering acc given eigen projections on ood validation data 0.795
 
 
-CUDA_VISIBLE_DEVICES=7 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32-10cls --ntk-std-scale 20 (--nef-resume snapshots/resnet20-ntk-bs256-ip32-10cls/nef_checkpoint_199.th)
+CUDA_VISIBLE_DEVICES=7 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32-10cls --ntk-std-scale 20 (--nef-resume snapshots/resnet20-ntk-bs256-ip32-10cls/nef_checkpoint_199.th --num-samples 1)
 	Test set: Average loss: 0.3567, Accuracy: 0.9193  ECE: 0.0487
 	Test set: Average loss: 0.2767, Accuracy: 0.9200  ECE: 0.0162
+	kron laplace: Test set: Average loss: 0.9060, Accuracy: 0.9149  ECE: 0.4683
+	diag laplace: Test set: Average loss: 0.9338, Accuracy: 0.9136  ECE: 0.4803
+	last-layer laplace: Test set: Average loss: 0.2642, Accuracy: 0.9186  ECE: 0.0255
 CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet32 --job-id resnet32-ntk-bs256-ip32-10cls --ntk-std-scale 20
 	Test set: Average loss: 0.3696, Accuracy: 0.9205  ECE: 0.0515
     Test set: Average loss: 0.2611, Accuracy: 0.9202  ECE: 0.0113
 CUDA_VISIBLE_DEVICES=3 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet56 --job-id resnet56-ntk-bs256-ip32-10cls --ntk-std-scale 20
 	Test set: Average loss: 0.3358, Accuracy: 0.9245  ECE: 0.0496
     Test set: Average loss: 0.2342, Accuracy: 0.9238  ECE: 0.0118
+	kron laplace: Test set: Average loss: 1.5763, Accuracy: 0.9197  ECE: 0.7055
+	diag laplace: Test set: Average loss: 1.6059, Accuracy: 0.9191  ECE: 0.7116
+	last-layer laplace: Test set: Average loss: 0.2311, Accuracy: 0.9242  ECE: 0.0235
 CUDA_VISIBLE_DEVICES=4 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet110 --job-id resnet110-ntk-bs256-ip32-10cls --ntk-std-scale 20
 	Test set: Average loss: 0.3454, Accuracy: 0.9284  ECE: 0.0463
-    Test set: Average loss: 0.2414, Accuracy: 0.9283  ECE: 0.0101
+    Test set: Average loss: 0.2404, Accuracy: 0.9273  ECE: 0.0088
+	kron laplace: Test set: Average loss: 1.7668, Accuracy: 0.9233  ECE: 0.7486
+	diag laplace: Test set: Average loss: 1.7970, Accuracy: 0.9227  ECE: 0.7535
+	last-layer laplace: Test set: Average loss: 0.2328, Accuracy: 0.9286  ECE: 0.0194
 '''
 import argparse
 import os
@@ -130,6 +139,10 @@ parser.add_argument('--draw', action='store_true')
 parser.add_argument('--delta', default=5, type=float, help='delta') # # of data * weight_decay = 50000 * 1e-4 = 5
 parser.add_argument('--ntk-std-scale', default=1, type=float)
 
+parser.add_argument('--subset_of_weights', default='all', type=str)
+parser.add_argument('--hessian_structure', default='kron', type=str)
+
+
 def main():
 	args = parser.parse_args()
 	args.save_dir = os.path.join(args.save_dir, args.job_id)
@@ -174,6 +187,7 @@ def main():
 	num_params = sum(p.numel() for p in classifier.parameters())
 	print("Number of parameters:", num_params)
 	validate(args, val_loader, classifier)
+	kfac_laplace_validate(args, val_loader, classifier)
 
 	ground_truth_NTK, ground_truth_NTK_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
 	NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
@@ -518,7 +532,7 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 
 	# test on in-distribution data
 	test_loss, correct, test_loss_ntkunc, correct_ntkunc = 0, 0, 0, 0
-	uncs, confs, ents = [], [], []
+	uncs, uconfs, confs, ents = [], [], [], []
 	probs, probs_ntkunc, labels = [], [], []
 	with torch.no_grad():
 		for x, y in val_loader:
@@ -546,8 +560,9 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 			test_loss_ntkunc += F.cross_entropy(prob.log(), y).item() * y.size(0)
 			correct_ntkunc += prob.argmax(dim=1).eq(y).sum().item()
 			uncs.append(ent(prob))
+			uconfs.append(prob.max(-1)[0])
 
-	uncs, confs, ents = torch.cat(uncs), torch.cat(confs), torch.cat(ents)
+	uncs, uconfs, confs, ents = torch.cat(uncs), torch.cat(uconfs), torch.cat(confs), torch.cat(ents)
 	uncs[torch.isnan(uncs)] = uncs[~torch.isnan(uncs)].min()
 	# print(uncs.max(), uncs.min(), confs.max(), confs.min(), ents.max(), ents.min())
 	test_loss /= len(val_loader.dataset)
@@ -560,9 +575,9 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 	confidences_ntkunc, predictions_ntkunc = torch.max(probs_ntkunc, 1)
 	ece_func = _ECELoss().cuda()
 	ece = ece_func(confidences, predictions, labels,
-				   title='cifar_plots/ntk/ece.pdf').item()
+				   title='cifar_plots/ntk/{}/ece.pdf'.format(args.clf_arch)).item()
 	ece_ntkunc = ece_func(confidences_ntkunc, predictions_ntkunc, labels,
-				   title='cifar_plots/ntk/ece_ntkunc.pdf').item()
+				   title='cifar_plots/ntk/{}/ece_ntkunc.pdf'.format(args.clf_arch)).item()
 
 	print('\tTest set: Average loss: {:.4f},'
 	      ' Accuracy: {:.4f}  ECE: {:.4f}\n'
@@ -578,7 +593,7 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 		]), download=True),
 		batch_size=args.batch_size, shuffle=False,
 		num_workers=args.workers, pin_memory=True)
-	uncs_ood, confs_ood, ents_ood = [], [],  []
+	uncs_ood, uconfs_ood, confs_ood, ents_ood = [], [],  [], []
 	with torch.no_grad():
 		for x, _ in ood_loader:
 			x = x.cuda(non_blocking=True)
@@ -593,15 +608,17 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 			# F_samples = torch.distributions.multivariate_normal.MultivariateNormal(output, F_var).sample((args.nef_num_samples_eval,))
 			prob = F_samples.softmax(-1).mean(0)
 			uncs_ood.append(ent(prob))
+			uconfs_ood.append(prob.max(-1)[0])
 
-	uncs_ood, confs_ood, ents_ood = torch.cat(uncs_ood), torch.cat(confs_ood), torch.cat(ents_ood)
+	uncs_ood, uconfs_ood, confs_ood, ents_ood = torch.cat(uncs_ood), torch.cat(uconfs_ood), torch.cat(confs_ood), torch.cat(ents_ood)
 	uncs_ood[torch.isnan(uncs_ood)] = uncs_ood[~torch.isnan(uncs_ood)].min()
 	# uncs_ood[torch.isneginf(uncs_ood)] = uncs_ood[~torch.isneginf(uncs_ood)].min()
 	# print(uncs_ood.max(), uncs_ood.min(), confs_ood.max(), confs_ood.min(), ents_ood.max(), ents_ood.min())
 
-	binary_classification_given_uncertainty(uncs,uncs_ood, 'cifar_plots/ntk/id_vs_ood_ntkunc.pdf')
-	binary_classification_given_uncertainty(confs,confs_ood, 'cifar_plots/ntk/id_vs_conf.pdf', reverse=True)
-	binary_classification_given_uncertainty(ents,ents_ood, 'cifar_plots/ntk/id_vs_ood_ent.pdf')
+	binary_classification_given_uncertainty(uncs,uncs_ood, 'cifar_plots/ntk/{}/id_vs_ood_ntkunc_ent.pdf'.format(args.clf_arch))
+	binary_classification_given_uncertainty(uconfs,uconfs_ood, 'cifar_plots/ntk/{}/id_vs_ood_ntkunc_conf.pdf'.format(args.clf_arch))
+	binary_classification_given_uncertainty(confs,confs_ood, 'cifar_plots/ntk/{}/id_vs_conf.pdf'.format(args.clf_arch), reverse=True)
+	binary_classification_given_uncertainty(ents,ents_ood, 'cifar_plots/ntk/{}/id_vs_ood_ent.pdf'.format(args.clf_arch))
 
 
 def finetune_binary_classifier(args, classifier, train_loader, val_loader):
@@ -736,6 +753,90 @@ def validate(args, val_loader, classifier, verbose=True):
 	top1 = float(correct) / len(val_loader.dataset)
 	if verbose:
 		print('\tTest set: Average loss: {:.4f}, Accuracy: {:.4f}'.format(test_loss, top1))
+	return test_loss, top1
+
+def kfac_laplace_validate(args, val_loader, classifier, verbose=True):
+	if args.num_classes == 2:
+		exit(1)
+
+	from laplace import Laplace
+	from laplace.curvature import AsdlGGN
+
+	if args.dataset == 'cifar10':
+		mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+		dataset = torchvision.datasets.CIFAR10
+	elif args.dataset == 'cifar100':
+		mean, std = [x / 255 for x in [129.3, 124.1, 112.4]], [x / 255 for x in [68.2, 65.4, 70.4]]
+		dataset = torchvision.datasets.CIFAR100
+	normalize = transforms.Normalize(mean=mean, std=std)
+	train_dataset = dataset(root=args.data_dir, train=True,
+		transform=transforms.Compose([
+			transforms.ToTensor(),
+			normalize,
+		]), download=True)
+	train_loader = torch.utils.data.DataLoader(
+		train_dataset,
+		batch_size=args.batch_size, shuffle=True,
+		num_workers=args.workers, pin_memory=True)
+
+	la = Laplace(classifier, 'classification',
+	             subset_of_weights=args.subset_of_weights,
+	             hessian_structure=args.hessian_structure, backend=AsdlGGN)
+	la.fit(train_loader)
+	la.optimize_prior_precision(method='marglik')
+
+	test_loss, correct = 0, 0
+	labels, probs, ents, confs = [], [], [], []
+	with torch.no_grad():
+		for data, target in val_loader:
+			data = data.cuda(non_blocking=True)
+			with torch.cuda.amp.autocast():
+				prob = la(data).float().cpu()
+
+			labels.append(target)
+			probs.append(prob)
+			ents.append(ent(prob))
+			confs.append(prob.max(-1)[0])
+			test_loss += F.cross_entropy(prob.log(), target).item() * target.size(0)
+			correct += prob.argmax(dim=1).eq(target).sum().item()
+
+	test_loss /= len(val_loader.dataset)
+	top1 = float(correct) / len(val_loader.dataset)
+
+	labels, probs, ents, confs = torch.cat(labels), torch.cat(probs), torch.cat(ents), torch.cat(confs)
+	confidences, predictions = torch.max(probs, 1)
+
+	ece_func = _ECELoss() #.cuda()
+	ece = ece_func(confidences, predictions, labels,
+				   title='cifar_plots/ntk/{}/ece_laplace_{}_{}.pdf'.format(args.clf_arch, args.subset_of_weights, args.hessian_structure)).item()
+
+	print('\tTest set: Average loss: {:.4f},'
+	      ' Accuracy: {:.4f}  ECE: {:.4f}'.format(test_loss, top1, ece))
+
+	# test on out-of-distribution data
+	ood_loader = torch.utils.data.DataLoader(
+		torchvision.datasets.SVHN(root='/data/LargeData/Regular/svhn', split='test',
+		transform=transforms.Compose([
+			transforms.ToTensor(),
+			normalize,
+		]), download=True),
+		batch_size=args.batch_size, shuffle=False,
+		num_workers=args.workers, pin_memory=True)
+
+	confs_ood, ents_ood = [], []
+	with torch.no_grad():
+		for x, _ in ood_loader:
+			x = x.cuda(non_blocking=True)
+			with torch.cuda.amp.autocast():
+				prob = la(x).float().cpu()
+			ents_ood.append(ent(prob))
+			confs_ood.append(prob.max(-1)[0])
+
+	confs_ood, ents_ood = torch.cat(confs_ood), torch.cat(ents_ood)
+
+	binary_classification_given_uncertainty(confs,confs_ood, 'cifar_plots/ntk/{}/id_vs_ood_conf_laplace_{}_{}.pdf'.format(args.clf_arch, args.subset_of_weights, args.hessian_structure), reverse=True)
+	binary_classification_given_uncertainty(ents,ents_ood, 'cifar_plots/ntk/{}/id_vs_ood_ent_laplace_{}_{}.pdf'.format(args.clf_arch, args.subset_of_weights, args.hessian_structure))
+
 	return test_loss, top1
 
 def load_cifar(args):
