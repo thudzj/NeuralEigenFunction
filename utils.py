@@ -85,7 +85,9 @@ def polynomial_kernel(degree, eta, nu, x1, x2=None):
 		x1 = x1.unsqueeze(-1)
 	if x2.dim() == 1:
 		x2 = x2.unsqueeze(-1)
-	return ((x1.unsqueeze(1) * x2.unsqueeze(0)).sum(-1) * eta + nu) ** degree
+	x1 = x1.flatten(1)
+	x2 = x2.flatten(1)
+	return (x1 @ x2.T * eta + nu) ** degree
 
 def sigmoid_kernel(eta, nu, x1, x2=None):
 	if x2 is None:
@@ -94,6 +96,8 @@ def sigmoid_kernel(eta, nu, x1, x2=None):
 		x1 = x1.unsqueeze(-1)
 	if x2.dim() == 1:
 		x2 = x2.unsqueeze(-1)
+	x1 = x1.flatten(1)
+	x2 = x2.flatten(1)
 	return ((x1.unsqueeze(1) * x2.unsqueeze(0)).sum(-1) * eta + nu).tanh()
 
 def cosine_kernel(period, output_scale, length_scale, x1, x2=None):
@@ -103,18 +107,39 @@ def cosine_kernel(period, output_scale, length_scale, x1, x2=None):
 		x1 = x1.unsqueeze(-1)
 	if x2.dim() == 1:
 		x2 = x2.unsqueeze(-1)
+	x1 = x1.flatten(1)
+	x2 = x2.flatten(1)
 	return (((x1.unsqueeze(1) - x2.unsqueeze(0))**2).sum(-1).sqrt() * math.pi / period / length_scale).cos() * output_scale
 
 def rbf_kernel(output_scale, length_scale, x1, x2=None):
 	if x2 is None:
 		x2 = x1
-	# if x1.dim() == 1:
-	# 	x1 = x1.unsqueeze(-1)
-	# if x2.dim() == 1:
-	# 	x2 = x2.unsqueeze(-1)
+
+	if x1.dim() == 1:
+		x1 = x1.unsqueeze(-1)
+	if x2.dim() == 1:
+		x2 = x2.unsqueeze(-1)
+
+	x1 = x1.flatten(1)
+	x2 = x2.flatten(1)
+
 	#
 	# (x1 ** 2).sum(-1).view(-1, 1) + (x2 ** 2).sum(-1).view(1, -1) - 2 * x1 @ x2.T
 	return (- ((x1 ** 2).sum(-1).view(-1, 1) + (x2 ** 2).sum(-1).view(1, -1) - 2 * x1 @ x2.T) / 2. / length_scale).exp() * output_scale
+
+def linear_kernel(x1, x2=None):
+	if x2 is None:
+		x2 = x1
+
+	if x1.dim() == 1:
+		x1 = x1.unsqueeze(-1)
+	if x2.dim() == 1:
+		x2 = x2.unsqueeze(-1)
+
+	x1 = x1.flatten(1)
+	x2 = x2.flatten(1)
+
+	return x1 @ x2.T
 
 def periodic_plus_rbf_kernel(period, output_scale1, length_scale1, output_scale2, length_scale2, x1, x2=None):
 	if x2 is None:
@@ -123,6 +148,10 @@ def periodic_plus_rbf_kernel(period, output_scale1, length_scale1, output_scale2
 		x1 = x1.unsqueeze(-1)
 	if x2.dim() == 1:
 		x2 = x2.unsqueeze(-1)
+
+	x1 = x1.flatten(1)
+	x2 = x2.flatten(1)
+
 	out1 = (- (((x1.unsqueeze(1) - x2.unsqueeze(0)).abs().sum(-1) * math.pi / period).sin() ** 2) * 2. / length_scale1).exp() * output_scale1
 	out2 = (- ((x1.unsqueeze(1) - x2.unsqueeze(0))**2).sum(-1) / 2. / length_scale2).exp() * output_scale2
 	return out1 + out2
@@ -132,8 +161,8 @@ def nystrom(X, k, kernel):
 	start = timer()
 	K = kernel(X)
 	p, q = scipy.linalg.eigh(K.data.cpu().numpy(), subset_by_index=[K.shape[0]-k, K.shape[0]-1])
-	p = torch.from_numpy(p).float()[range(-1, -(k+1), -1)]
-	q = torch.from_numpy(q).float()[:, range(-1, -(k+1), -1)]
+	p = torch.from_numpy(p).to(X.device).float()[range(-1, -(k+1), -1)]
+	q = torch.from_numpy(q).to(X.device).float()[:, range(-1, -(k+1), -1)]
 	# p, q = torch.symeig(K, eigenvectors=True)
 	eigenvalues_nystrom = p / X.shape[0]
 	eigenfuncs_nystrom = lambda x: kernel(x, X) @ q / p * math.sqrt(X.shape[0])
@@ -258,14 +287,14 @@ class ConvNet(nn.Module):
 			)
 		elif self.arch == 'convnet2':
 			self.model = torch.nn.Sequential(
-				nn.Conv2d(in_channels=input_size[0], out_channels=hs[0], kernel_size=3, padding=1),
+				nn.Conv2d(in_channels=input_size[0], out_channels=hs[0], kernel_size=5, padding=2),
 				nn.BatchNorm2d(hs[0]),
 				nn.ReLU(), nn.MaxPool2d(2),
-				nn.Conv2d(in_channels=hs[0], out_channels=hs[1], kernel_size=3),
+				nn.Conv2d(in_channels=hs[0], out_channels=hs[1], kernel_size=5, padding=2),
 				nn.BatchNorm2d(hs[1]),
 				nn.ReLU(), nn.MaxPool2d(2),
 				nn.Flatten(1),
-				nn.Linear(hs[1]*6*6, hs[2]), nn.ReLU(),
+				nn.Linear(hs[1]*7*7, hs[2]), nn.ReLU(),
 				nn.Linear(hs[2], output_size)
 			)
 		elif self.arch == 'convnet3':

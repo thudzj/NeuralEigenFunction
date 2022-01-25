@@ -1,32 +1,30 @@
 '''
-CUDA_VISIBLE_DEVICES=5 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular/ --k 10 --num-samples 2000 --b-var-r 0.01 --job-id 2  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet2
-	Training acc of the l-svc for data projected by pca: 0.7529833333333333
-	Testing acc of the l-svc for data projected by pca: 0.7639
-	Training acc of the lr for data projected by pca: 0.7377
-	Testing acc of the lr for data projected by pca: 0.7433
+CUDA_VISIBLE_DEVICES=5 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular/ --k 10 --num-samples 2000 --job-id 0  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet2
+	Training acc of the lr for data projected by nystrom: 0.7706333333333333
+	Testing acc of the lr for data projected by nystrom: 0.7766
+	Training acc of the lr for data projected by nystrom: 0.7733666666666666
+	Testing acc of the lr for data projected by nystrom: 0.7831
 
-	Training acc of the linear svc: 0.8076166666666666
-	Testing acc of the linear svc: 0.8212
-	Training acc of the lr: 0.8063166666666667
-	Testing acc of the lr: 0.8235
+	Training acc of the lr: 0.84215
+	Testing acc of the lr: 0.8498
 
-
-run on g20
-CUDA_VISIBLE_DEVICES=6 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular --k 10 --num-samples 2000 --b-var-r 0.01 --job-id 6  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet1
-	Training acc of the linear svc: 0.7791166666666667
-	Testing acc of the linear svc: 0.7846
-	Training acc of the lr: 0.7697666666666667
-	Testing acc of the lr: 0.776
-
-	Training acc of the l-svc for data projected by nystrom: 0.77825
-	Testing acc of the l-svc for data projected by nystrom: 0.7886
-	Training acc of the lr for data projected by nystrom: 0.7687
-	Testing acc of the lr for data projected by nystrom: 0.7781
-
-	Training acc of the l-svc for data projected by pca: 0.6986166666666667
-	Testing acc of the l-svc for data projected by pca: 0.699
-	Training acc of the lr for data projected by pca: 0.73265
-	Testing acc of the lr for data projected by pca: 0.7442
+----- not used -----
+# run on g20
+# CUDA_VISIBLE_DEVICES=6 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular --k 10 --num-samples 2000 --b-var-r 0.01 --job-id 6  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet1
+# 	Training acc of the linear svc: 0.7791166666666667
+# 	Testing acc of the linear svc: 0.7846
+# 	Training acc of the lr: 0.7697666666666667
+# 	Testing acc of the lr: 0.776
+#
+# 	Training acc of the l-svc for data projected by nystrom: 0.77825
+# 	Testing acc of the l-svc for data projected by nystrom: 0.7886
+# 	Training acc of the lr for data projected by nystrom: 0.7687
+# 	Testing acc of the lr for data projected by nystrom: 0.7781
+#
+# 	Training acc of the l-svc for data projected by pca: 0.6986166666666667
+# 	Testing acc of the l-svc for data projected by pca: 0.699
+# 	Training acc of the lr for data projected by pca: 0.73265
+# 	Testing acc of the lr for data projected by pca: 0.7442
 '''
 import math
 from functools import partial
@@ -55,13 +53,13 @@ from sklearn import svm
 # from sklearn.gaussian_process import GaussianProcessClassifier
 # from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel
 from sklearn.linear_model import SGDClassifier
-from utils import nystrom, init_NN, load_mnist, ConvNet, ConvNetKernel
+from utils import *
 
 parser = argparse.ArgumentParser(description='Decompose the ConvNet kernel on MNIST')
 parser.add_argument('--data-path', type=str,
 					default='/Users/dengzhijie/Desktop/automl-one/automl-one/data') # '/data/LargeData/Regular')
-parser.add_argument('--seed', type=int, default=1, metavar='S',
-					help='random seed (default: 1)')
+parser.add_argument('--seed', type=int, default=0, metavar='S',
+					help='random seed (default: 0)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
 					help='number of data loading workers (default: 8)')
 parser.add_argument('-b', '--batch-size', default=1000, type=int,
@@ -139,41 +137,46 @@ def main():
 		X_val.append(x); Y_val.append(y)
 	X_val, Y_val = torch.cat(X_val).to(device), torch.cat(Y_val)
 
-
 	# perform nystrom method on the nngp-kernel
-	if args.arch == 'convnet1':
-		kernel = ConvNetKernel('convnet1', [1, 28, 28], args.w_var_r, args.b_var_r).cuda()
+	# if args.arch == 'convnet1':
+	# 	kernel = ConvNetKernel('convnet1', [1, 28, 28], args.w_var_r, args.b_var_r).cuda()
+	# 	with torch.no_grad():
+	# 		_, eigenfuncs_nystrom, _ = nystrom(X[np.random.choice(X.shape[0], 800, replace=False)].contiguous(), args.k, kernel)
+	# 		X_projected_by_nystrom, X_val_projected_by_nystrom = [], []
+	# 		with torch.cuda.amp.autocast():
+	# 			for i in range(0, len(X), args.bs):
+	# 				X_projected_by_nystrom.append(eigenfuncs_nystrom(X[i: min(len(X), i+args.bs)]).cpu())
+	# 			for i in range(0, len(X_val), args.bs):
+	# 				X_val_projected_by_nystrom.append(eigenfuncs_nystrom(X_val[i: min(len(X_val), i+args.bs)]).cpu())
+	# 		X_projected_by_nystrom = torch.cat(X_projected_by_nystrom).float()
+	# 		X_val_projected_by_nystrom = torch.cat(X_val_projected_by_nystrom).float()
+	# 	clf = svm.LinearSVC()
+	# 	clf.fit(X_projected_by_nystrom, Y)
+	# 	print("Training acc of the l-svc for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
+	# 	print("Testing acc of the l-svc for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
+	# 	clf = SGDClassifier(loss='log')
+	# 	clf.fit(X_projected_by_nystrom, Y)
+	# 	print("Training acc of the lr for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
+	# 	print("Testing acc of the lr for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
+
+	for kernel in [linear_kernel, partial(rbf_kernel, 1, 230)]:
+	# for p1 in range(100, 1000, 10):
+	# 	kernel = partial(rbf_kernel, 1, p1)
+	# 	print(p1)
 		with torch.no_grad():
-			_, eigenfuncs_nystrom, _ = nystrom(X[np.random.choice(X.shape[0], 800, replace=False)].contiguous(), args.k, kernel)
+			_, eigenfuncs_nystrom, _ = nystrom(X.cpu()[np.random.choice(X.shape[0], 6000, replace=False)].contiguous().contiguous(), args.k, kernel)
 			X_projected_by_nystrom, X_val_projected_by_nystrom = [], []
 			with torch.cuda.amp.autocast():
 				for i in range(0, len(X), args.bs):
-					X_projected_by_nystrom.append(eigenfuncs_nystrom(X[i: min(len(X), i+args.bs)]).cpu())
+					X_projected_by_nystrom.append(eigenfuncs_nystrom(X[i: min(len(X), i+args.bs)].cpu()))
 				for i in range(0, len(X_val), args.bs):
-					X_val_projected_by_nystrom.append(eigenfuncs_nystrom(X_val[i: min(len(X_val), i+args.bs)]).cpu())
+					X_val_projected_by_nystrom.append(eigenfuncs_nystrom(X_val[i: min(len(X_val), i+args.bs)].cpu()))
 			X_projected_by_nystrom = torch.cat(X_projected_by_nystrom).float()
 			X_val_projected_by_nystrom = torch.cat(X_val_projected_by_nystrom).float()
-		clf = svm.LinearSVC()
-		clf.fit(X_projected_by_nystrom, Y)
-		print("Training acc of the l-svc for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
-		print("Testing acc of the l-svc for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
 		clf = SGDClassifier(loss='log')
 		clf.fit(X_projected_by_nystrom, Y)
 		print("Training acc of the lr for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
 		print("Testing acc of the lr for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
-
-	with torch.no_grad():
-		p, q = torch.symeig(X.T @ X, eigenvectors=True)
-		X_projected_by_pca = (X @ q[:, range(-1, -(args.k+1), -1)]).data.cpu()
-		X_val_projected_by_pca = (X_val @ q[:, range(-1, -(args.k+1), -1)]).data.cpu()
-	clf = svm.LinearSVC()
-	clf.fit(X_projected_by_pca, Y)
-	print("Training acc of the l-svc for data projected by pca: {}".format(clf.score(X_projected_by_pca, Y)))
-	print("Testing acc of the l-svc for data projected by pca: {}".format(clf.score(X_val_projected_by_pca, Y_val)))
-	clf = SGDClassifier(loss='log')
-	clf.fit(X_projected_by_pca, Y)
-	print("Training acc of the lr for data projected by pca: {}".format(clf.score(X_projected_by_pca, Y)))
-	print("Testing acc of the lr for data projected by pca: {}".format(clf.score(X_val_projected_by_pca, Y_val)))
 
 	# perform our method
 	random_model = ConvNet(args.arch, args.bhs_r, input_size=[1, 28, 28], output_size=1).to(device)
@@ -265,12 +268,6 @@ def main():
 
 	figure.tight_layout()
 	figure.savefig('mnist_plots/{}_3d.pdf'.format(args.job_id), format='pdf', dpi=1000, bbox_inches='tight')
-
-	# eigenvalues_our = eigenvalues_our.cpu()
-	clf = svm.LinearSVC()
-	clf.fit(X_projected_by_our, Y)
-	print("Training acc of the linear svc: {}".format(clf.score(X_projected_by_our, Y)))
-	print("Testing acc of the linear svc: {}".format(clf.score(X_val_projected_by_our, Y_val)))
 
 	clf = SGDClassifier(loss='log')
 	clf.fit(X_projected_by_our, Y)
