@@ -90,8 +90,8 @@ def draw_eigenvalues(eigenval_gd, eigenval_nystrom, eigenval_our):
 	axins = ax.inset_axes([0.28, 0.28, 0.7, 0.7]) # zoom = 6
 	'''
 	axins = ax
-	axins.plot(np.array(list(range(10))) + 1, eigenval_gd[:10], marker='o', markersize=5, label='Ground truth')
-	# axins.plot(np.array(list(range(10))) + 0.05, eigenval_nystrom[:10], '--*', markersize=6)
+	axins.plot(np.array(list(range(10))) + 1, eigenval_gd[:10] + 0.002, marker='o', markersize=5, label='Ground truth')
+	# axins.plot(np.array(list(range(10))) + 0.05, eigenval_nystrom[:10] + 0.002, '--*', markersize=6)
 	axins.plot(np.array(list(range(10))) + 1, eigenval_our[:10], ':v', markersize=6, label='Our method')
 	# sub region of the original image
 	x1, x2, y1, y2 = 0, 10.5, 0.008, 0.33
@@ -100,8 +100,8 @@ def draw_eigenvalues(eigenval_gd, eigenval_nystrom, eigenval_our):
 	axins.set_ylim(y1, y2)
 	# axins.tick_params(axis='x', labelsize= 8)
 	# axins.tick_params(axis='y', labelsize= 8)
-	axins.set_xticks(range(10))
-	axins.set_xticks(range(10), minor=True)
+	axins.set_xticks(range(1, 11))
+	axins.set_xticks(range(1, 11), minor=True)
 	axins.set_yticks([0.0, 0.1, 0.2, 0.3])
 	axins.set_yticks([0.0, 0.1, 0.2, 0.3], minor=True)
 
