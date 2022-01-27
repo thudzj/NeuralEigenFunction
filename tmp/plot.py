@@ -38,7 +38,7 @@ matplotlib.use('agg')
 import matplotlib.pyplot as plt
 plt.rcParams.update({'figure.max_open_warning': 0})
 plt.rcParams['font.family'] = 'Times New Roman'
-plt.rcParams.update({'font.size': 14})
+plt.rcParams.update({'font.size': 12})
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import pandas as pd
 import seaborn as sns
@@ -63,7 +63,7 @@ def draw_eigenvalues(eigenval_gd, eigenval_nystrom, eigenval_our):
 	from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
 	from mpl_toolkits.axes_grid1.inset_locator import mark_inset
 
-	fig = plt.figure(figsize=(5, 4.5))
+	fig = plt.figure(figsize=(6, 4.5))
 	ax = fig.add_subplot(111)
 	ax.tick_params(axis='y', which='major', labelsize=12)
 	ax.tick_params(axis='y', which='minor', labelsize=12)
@@ -109,7 +109,7 @@ def draw_eigenvalues(eigenval_gd, eigenval_nystrom, eigenval_our):
 
 	# ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.14),
     #       ncol=3, fancybox=True, shadow=True, fontsize=13)
-	ax.set_xlabel('$i$-th eigenvalue', fontsize=16)
+	ax.set_xlabel('$i$-th eigenvalue', fontsize=14)
 	ax.legend(loc='best')
 
 	fig.tight_layout()
