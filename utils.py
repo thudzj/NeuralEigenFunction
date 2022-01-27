@@ -347,10 +347,10 @@ class ConvNetNT:
 			import functools
 			Conv = functools.partial(stax.GeneralConv, ('NCHW', 'OIHW', 'NCHW'))
 			init_fn, f = stax.serial(
-			   Conv(hs[0], (3, 3), padding='SAME'),
+			   Conv(hs[0], (5, 5), padding='SAME'),
 			   stax.Relu,
 			   stax.MaxPool((2, 2), strides=(2,2), spec='NCHW'),
-			   Conv(hs[1], (3, 3)),
+			   Conv(hs[1], (5, 5), padding='SAME'),
 			   stax.Relu,
 			   stax.MaxPool((2, 2), strides=(2,2), spec='NCHW'),
 			   stax.Flatten,

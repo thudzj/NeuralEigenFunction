@@ -7,6 +7,8 @@ CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-pl
 	Clustering acc given clf features on ood validation data 0.979
 	Clustering acc given eigen projections on ood validation data 0.795
 
+	cd tmp/; python plot.py
+
 
 CUDA_VISIBLE_DEVICES=7 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32-10cls --ntk-std-scale 20 (--nef-resume snapshots/resnet20-ntk-bs256-ip32-10cls/nef_checkpoint_199.th --num-samples 1)
 	Test set: Average loss: 0.3567, Accuracy: 0.9193  ECE: 0.0487
@@ -62,6 +64,8 @@ from timm.utils import AverageMeter
 
 from backpack import backpack, extend
 from backpack.extensions import BatchGrad
+
+import scipy
 
 import matplotlib
 matplotlib.use('agg')
@@ -188,35 +192,59 @@ def main():
 	print("Number of parameters:", num_params)
 	validate(args, val_loader, classifier)
 	# kfac_laplace_validate(args, val_loader, classifier)
-	#
-	# ground_truth_NTK, ground_truth_NTK_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
-	# NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
-	# print("---------", 'ground truth NTK on training data', "---------")
-	# print(ground_truth_NTK[:10, :10].data.numpy())
-	# print("---------", 'NTK estimated by sampling on training data', "---------")
-	# print((NTK_samples[:, :10].T @ NTK_samples[:, :10] / args.num_samples).data.cpu().numpy())
-	#
-	# scale_ = ((NTK_samples/math.sqrt(args.num_samples)).norm(dim=0)**2).mean().item()
-	# NTK_samples /= math.sqrt(scale_)
-	# ground_truth_NTK /= scale_
-	# ground_truth_NTK_val /= scale_
-	#
-	# print('Distance between gd NTK and estimated NTK: noise {}, eps {}, scale {}, dist {}'.format(
-	# 	args.random_dist_type, args.epsilon, scale_,
-	# 	torch.dist(ground_truth_NTK[:100, :100],
-	# 			   NTK_samples[:, :100].T @ NTK_samples[:, :100] / args.num_samples).item()))
+
+	Jacobian, Jacobian_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
+
+	NTK_samples = sample_from_ntk(args, classifier, nef_train_val_loader)
+
+	scale_ = ((NTK_samples/math.sqrt(args.num_samples)).norm(dim=0)**2).mean().item()
+	NTK_samples /= math.sqrt(scale_)
+	Jacobian /= math.sqrt(scale_)
+	Jacobian_val /= math.sqrt(scale_)
+
+	ground_truth_NTK, ground_truth_NTK_val = Jacobian @ Jacobian.T, Jacobian_val @ Jacobian_val.T
+
+	print("---------", 'ground truth NTK on training data', "---------")
+	print(ground_truth_NTK[:10, :10].data.numpy())
+	print("---------", 'NTK estimated by sampling on training data', "---------")
+	print((NTK_samples[:, :10].T @ NTK_samples[:, :10] / args.num_samples).data.cpu().numpy())
+
+	print('Distance between gd NTK and estimated NTK: noise {}, eps {}, scale {}, dist {}'.format(
+		args.random_dist_type, args.epsilon, scale_,
+		torch.dist(ground_truth_NTK[:100, :100],
+				   NTK_samples[:, :100].T @ NTK_samples[:, :100] / args.num_samples).item()))
 
 	nef = NeuralEigenFunctions(args.nef_k, args.nef_arch, args.nef_in_planes, args.num_classes, args.nef_no_bn, args.nef_share).cuda()
-	# eigenvalues = train_nef(
-	# 	args, nef, NTK_samples, nef_train_loader,
-	# 	args.nef_k, args.nef_epochs, args.nef_optimizer_type,
-	# 	args.nef_lr, args.nef_momentum,
-	# 	args.nef_riemannian_projection,
-	# 	args.nef_max_grad_norm, args.nef_amp,
-	# 	nef_train_val_loader, val_loader, ground_truth_NTK_val)
+
+	if args.nef_resume:
+		nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
+		eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
+	else:
+		eigenvalues = train_nef(
+			args, nef, NTK_samples, nef_train_loader,
+			args.nef_k, args.nef_epochs, args.nef_optimizer_type,
+			args.nef_lr, args.nef_momentum,
+			args.nef_riemannian_projection,
+			args.nef_max_grad_norm, args.nef_amp,
+			nef_train_val_loader, val_loader, ground_truth_NTK_val)
 
 	if args.draw:
-		draw_eigenvalues(args, eigenvalues, ground_truth_NTK)
+		perm = torch.randperm(ground_truth_NTK.size()[0])
+		Jacobian_sub = Jacobian[perm][:128]
+		K_sub = ground_truth_NTK[perm]
+		K_sub = K_sub[:, perm]
+		K_sub = K_sub[:128, :128]
+
+		p, q = scipy.linalg.eigh(K_sub.data.cpu().numpy(), subset_by_index=[K_sub.shape[0]-args.nef_k, K_sub.shape[0]-1]) #
+		eigenval_nystrom = torch.from_numpy(p).to(K_sub.device).float()[range(-1, -(args.nef_k+1), -1)] / K_sub.shape[0]
+		eigenvec_nystrom = torch.from_numpy(q).to(K_sub.device).float()[:, range(-1, -(args.nef_k+1), -1)] / math.sqrt(K_sub.shape[0])
+		#eigenfuncs_nystrom = lambda x: kernel(x, X) @ eigenvec_nystrom / eigenval_nystrom
+
+		val_proj_nystrom = Jacobian_val @ Jacobian_sub.T @ eigenvec_nystrom / eigenval_nystrom.sqrt()
+		NTK_val_nystrom = (val_proj_nystrom @ val_proj_nystrom.T).cpu()
+		print(NTK_val_nystrom[:5,:5], ground_truth_NTK_val[:5, :5])
+
+		draw_eigenvalues(args, eigenvalues, ground_truth_NTK, eigenval_nystrom)
 
 		nef.eval()
 		with torch.no_grad():
@@ -244,14 +272,11 @@ def main():
 			NTK_val_MC = NTK_samples_val.T @ NTK_samples_val
 
 			diag = ground_truth_NTK_val.diagonal().rsqrt().diag_embed().numpy()
-			draw_kernel(args, [NTK_val_our.numpy(), NTK_val_MC.numpy(), ground_truth_NTK_val.numpy()], diag,
-						['Our ($k=10$)', 'Random feature approach ($S=10$)', 'Ground truth'], 'last')
-
-	nef.load_state_dict(torch.load(args.nef_resume, map_location='cpu')['state_dict'])
-	eigenvalues = torch.load(args.nef_resume, map_location='cpu')['eigenvalues'].cuda()
+			draw_kernel(args, [ground_truth_NTK_val.numpy(), NTK_val_nystrom.numpy(), NTK_val_our.numpy(), NTK_val_MC.numpy(),], diag,
+						['Ground truth', 'The Nyström method', 'Our ($k=10$)', 'Random feature approach ($S=10$)', ], 'last')
 
 	if args.num_classes == 2:
-		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val)
+		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val, val_proj_nystrom)
 	else:
 		ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loader)
 
@@ -446,8 +471,8 @@ def get_ground_truth_ntk(args, classifier, train_loader, val_loader):
 				output[:,k].sum().backward()
 			Jacobian_batch.append(torch.cat([p.grad_batch.flatten(1) for p in bp_model.parameters()], -1).cpu())
 		Jacobian.append(torch.stack(Jacobian_batch, 1))
-		if len(Jacobian) == 20:
-			break
+		# if len(Jacobian) == 20:
+		# 	break
 
 	for (images, _) in tqdm(val_loader, desc = 'Calc Jacobian for validation data'):
 		images = images.cuda()
@@ -465,10 +490,9 @@ def get_ground_truth_ntk(args, classifier, train_loader, val_loader):
 	if args.num_classes == 10:
 		Jacobian = Jacobian[:100]
 		Jacobian_val = Jacobian_val[:100]
-	ground_truth_NTK, ground_truth_NTK_val = Jacobian.flatten(0,1) @ Jacobian.flatten(0,1).T, Jacobian_val.flatten(0,1) @ Jacobian_val.flatten(0,1).T
-	return ground_truth_NTK, ground_truth_NTK_val
+	return Jacobian.flatten(0,1), Jacobian_val.flatten(0,1)
 
-def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val):
+def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val, val_proj_nystrom):
 	nef.eval()
 	classifier.eval()
 	with torch.no_grad():
@@ -477,10 +501,10 @@ def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, N
 		val_eigen_projections = (torch.cat([nef(data.cuda()) for (data, _) in val_loader]).cpu() * eigenvalues.sqrt().cpu()).view(val_data.shape[0], -1)
 		val_labels = torch.cat([label for (_, label) in val_loader])
 
-		val_ood_data = torch.cat([data.flatten(1) for (data, _) in val_loader_ood])
-		val_ood_clf_features = torch.cat([classifier(data.cuda(), True) for (data, _) in val_loader_ood]).cpu()
-		val_ood_eigen_projections = (torch.cat([nef(data.cuda()) for (data, _) in val_loader_ood]).cpu() * eigenvalues.sqrt().cpu()).view(val_data.shape[0], -1)
-		val_ood_labels = torch.cat([label for (_, label) in val_loader_ood])
+		# val_ood_data = torch.cat([data.flatten(1) for (data, _) in val_loader_ood])
+		# val_ood_clf_features = torch.cat([classifier(data.cuda(), True) for (data, _) in val_loader_ood]).cpu()
+		# val_ood_eigen_projections = (torch.cat([nef(data.cuda()) for (data, _) in val_loader_ood]).cpu() * eigenvalues.sqrt().cpu()).view(val_data.shape[0], -1)
+		# val_ood_labels = torch.cat([label for (_, label) in val_loader_ood])
 
 	assignment = KMeans(len(args.classes)).fit_predict(val_data)
 	preds = assignment2pred(assignment, val_labels, len(args.classes))
@@ -494,21 +518,25 @@ def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, N
 	preds = assignment2pred(assignment, val_labels, len(args.classes))
 	print("Clustering acc given eigen projections on in-dis. validation data", (preds==val_labels.numpy()).astype(np.float32).mean())
 
+	assignment = KMeans(len(args.classes)).fit_predict(val_proj_nystrom.data.cpu().numpy())
+	preds = assignment2pred(assignment, val_labels, len(args.classes))
+	print("Clustering acc given eigen projections on in-dis. validation data (the nystrom method)", (preds==val_labels.numpy()).astype(np.float32).mean())
+
 	assignment = KMeans(len(args.classes)).fit_predict(NTK_samples_val[:10].T)
 	preds = assignment2pred(assignment, val_labels, len(args.classes))
 	print("Clustering acc given random features on in-dis. validation data", (preds==val_labels.numpy()).astype(np.float32).mean())
 
-	assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_data)
-	preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
-	print("Clustering acc on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
-
-	assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_clf_features)
-	preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
-	print("Clustering acc given clf features on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
-
-	assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_eigen_projections)
-	preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
-	print("Clustering acc given eigen projections on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
+	# assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_data)
+	# preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
+	# print("Clustering acc on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
+	#
+	# assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_clf_features)
+	# preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
+	# print("Clustering acc given clf features on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
+	#
+	# assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_eigen_projections)
+	# preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
+	# print("Clustering acc given eigen projections on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
 
 def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loader):
 	nef.eval()
@@ -918,7 +946,7 @@ def load_cifar(args):
 
 	return train_loader, nef_train_loader, nef_train_val_loader, val_loader, val_loader_ood
 
-def draw_eigenvalues(args, eigenval_our, ground_truth_NTK):
+def draw_eigenvalues(args, eigenval_our, ground_truth_NTK, eigenval_nystrom):
 	from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
 	from mpl_toolkits.axes_grid1.inset_locator import mark_inset
 
@@ -928,12 +956,12 @@ def draw_eigenvalues(args, eigenval_our, ground_truth_NTK):
 	K = ground_truth_NTK
 	# eigenval_gd, eigenvec_gd = torch.symeig(K[:1000, :1000], eigenvectors=True)
 	eigenval_gd = torch.symeig(K, eigenvectors=False)[0]
-	eigenval_gd = eigenval_gd[range(len(eigenval_gd)-1, -1, -1)] / ground_truth_NTK.shape[1]
+	eigenval_gd = eigenval_gd[range(len(eigenval_gd)-1, -1, -1)] / K.shape[1]
 	# projection_gd = eigenvec_gd[:, range(-1, -(k+1), -1)] * math.sqrt(collected_samples.shape[1]) * eigenval_gd[:k].sqrt()
 	# print(torch.dist(K, projection_gd @ projection_gd.T))
 	print('Ground truth top 10 eigenvalues', eigenval_gd[:10].data.cpu().numpy())
 
-	fig = plt.figure(figsize=(5, 4.5))
+	fig = plt.figure(figsize=(7, 5))
 	ax = fig.add_subplot(111)
 	ax.tick_params(axis='y', which='major', labelsize=12)
 	ax.tick_params(axis='y', which='minor', labelsize=12)
@@ -941,7 +969,10 @@ def draw_eigenvalues(args, eigenval_our, ground_truth_NTK):
 	ax.tick_params(axis='x', which='minor', labelsize=12)
 
 	sns.color_palette()
-	ax.plot(list(range(len(eigenval_gd[:2048]))), eigenval_gd[:2048].data.cpu().numpy(), alpha=1, label='Ground truth')
+
+	np.savez('tmp/eigenvals.npz', gd=eigenval_gd[:2048].data.cpu().numpy(), ny=eigenval_nystrom.data.cpu().numpy(), our=eigenval_our.data.cpu().numpy())
+	ax.plot(list(range(len(eigenval_gd[:2048]))), eigenval_gd[:2048].data.cpu().numpy(), alpha=1, marker='o', markersize=2, label='Ground truth')
+	ax.plot(list(range(len(eigenval_nystrom))), eigenval_nystrom.data.cpu().numpy(), '--*', markersize=5, label='The Nyström method')
 	ax.plot(list(range(len(eigenval_our))), eigenval_our.data.cpu().numpy(), ':v', markersize=3, label='Our')
 	ax.set_yscale('log')
 	ax.set_xlabel('$i$-th eigenvalue', fontsize=16)
@@ -953,24 +984,29 @@ def draw_eigenvalues(args, eigenval_our, ground_truth_NTK):
 	ax.spines['left'].set_color('gray')
 	ax.set_axisbelow(True)
 
-	# axins = zoomed_inset_axes(ax, 1.4, loc=1) # zoom = 6
-	# axins.plot(list(range(len(eigenval_gd[:3000]))), eigenval_gd[:3000].data.cpu().numpy(), alpha=1)#, marker='o')
-	# axins.plot(list(range(len(eigenval_our))), eigenval_our.data.cpu().numpy(), alpha=1)#, marker='v')
-	# # sub region of the original image
-	# x1, x2, y1, y2 = 0, 9, 0.01, 0.4
+	axins = ax.inset_axes([0.28, 0.28, 0.7, 0.7]) # zoom = 6
+	axins.plot(np.array(list(range(10))) + 0.05, eigenval_gd[:10].data.cpu().numpy() + 0.002, marker='o', markersize=5)
+	axins.plot(np.array(list(range(10))) + 0.05, eigenval_nystrom[:10].data.cpu().numpy() + 0.002, '--*', markersize=6)
+	axins.plot(np.array(list(range(10))) + 0.05, eigenval_our[:10].data.cpu().numpy() + 0.002, ':v', markersize=6)
+	# sub region of the original image
+	x1, x2, y1, y2 = 0, 9.5, 0.008, 0.33
 	# axins.set_yscale('log')
-	# axins.set_xlim(x1, x2)
-	# axins.set_ylim(y1, y2)
-	# axins.set_xticks([])
-	# axins.set_xticks([], minor=True)
-	# axins.set_yticks([])
-	# axins.set_yticks([], minor=True)
-	#
-	# # draw a bbox of the region of the inset axes in the parent axes and
-	# # connecting lines between the bbox and the inset axes area
-	# mark_inset(ax, axins, loc1=1, loc2=4, fc="none", ec="0.5")
+	axins.set_xlim(x1, x2)
+	axins.set_ylim(y1, y2)
+	axins.tick_params(axis='x', labelsize= 8)
+	axins.tick_params(axis='y', labelsize= 8)
+	axins.set_xticks(range(10))
+	axins.set_xticks(range(10), minor=True)
+	axins.set_yticks([0.01, 0.1, 0.2, 0.3])
+	axins.set_yticks([0.01, 0.1, 0.2, 0.3], minor=True)
 
-	ax.legend()#loc='upper center')
+	# draw a bbox of the region of the inset axes in the parent axes and
+	# connecting lines between the bbox and the inset axes area
+	mark_inset(ax, axins, loc1=2, loc2=3, fc="none", ec="0.5")
+
+	ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.14),
+          ncol=3, fancybox=True, shadow=True, fontsize=13)
+
 	fig.tight_layout()
 	fig.savefig(os.path.join(args.save_dir, 'eigenvalues_{}.pdf'.format(args.nef_k)), format='pdf', dpi=1000, bbox_inches='tight')
 
@@ -978,12 +1014,15 @@ def draw_kernel(args, kernels, diag, labels, epoch):
 	ma = 1
 	mi = -1
 
+	to_save = []
 	fig = plt.figure(figsize=(5*len(kernels), 5))
+	perm = np.random.permutation(kernels[0].shape[0])[:128]
 	for i, (k, l) in enumerate(zip(kernels, labels)):
 		ax = fig.add_subplot(100 + 10 * len(kernels) + i + 1)
 		# diag = np.diag(1. / np.sqrt(np.diag(k)))
 		k = diag @ k @ diag
-		im = ax.imshow(k[:128,:128], cmap='seismic', vmin=mi, vmax=ma)
+		im = ax.imshow(k[perm][:, perm], cmap='seismic', vmin=mi, vmax=ma)
+		to_save.append(k[perm][:, perm])
 		ax.set_xlabel('')
 		ax.set_ylabel('')
 		ax.set_title(l)
@@ -993,11 +1032,17 @@ def draw_kernel(args, kernels, diag, labels, epoch):
 		ax.set_yticks([])
 		ax.set_yticks([], minor=True)
 
-		divider = make_axes_locatable(ax)
-		cax = divider.append_axes("right", size="5%", pad=0.1)
+		# if i == len(kernels) - 1:
+		# 	divider = make_axes_locatable(ax)
+		# 	cax = divider.append_axes("right", size="5%", pad=0.1)
+		# 	fig.colorbar(im, cax=cax, format='%0.1f')
 
-		fig.colorbar(im, cax=cax, format='%0.1f')
+	fig.subplots_adjust(right=0.95)
+	cbar_ax = fig.add_axes([0.98, 0.15, 0.01, 0.7])
+	fig.colorbar(im, cax=cbar_ax)
 
+	to_save = np.stack(to_save)
+	np.savez('tmp/reconks.npz', k=to_save)
 	fig.tight_layout()
 	fig.savefig(os.path.join(args.save_dir, 'kernels_{}_{}.pdf'.format(args.nef_k, epoch)), format='pdf', dpi=1000, bbox_inches='tight')
 

@@ -1,9 +1,9 @@
 '''
 CUDA_VISIBLE_DEVICES=5 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular/ --k 10 --num-samples 2000 --job-id 0  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet2
-	Training acc of the lr for data projected by nystrom: 0.7706333333333333
-	Testing acc of the lr for data projected by nystrom: 0.7766
-	Training acc of the lr for data projected by nystrom: 0.7733666666666666
-	Testing acc of the lr for data projected by nystrom: 0.7831
+	Training acc of the lr for data projected by nystrom: 0.77415
+	Testing acc of the lr for data projected by nystrom: 0.78
+	Training acc of the lr for data projected by nystrom: 0.7675666666666666
+	Testing acc of the lr for data projected by nystrom: 0.7755
 
 	Training acc of the lr: 0.84215
 	Testing acc of the lr: 0.8498
@@ -58,8 +58,8 @@ from utils import *
 parser = argparse.ArgumentParser(description='Decompose the ConvNet kernel on MNIST')
 parser.add_argument('--data-path', type=str,
 					default='/Users/dengzhijie/Desktop/automl-one/automl-one/data') # '/data/LargeData/Regular')
-parser.add_argument('--seed', type=int, default=0, metavar='S',
-					help='random seed (default: 0)')
+parser.add_argument('--seed', type=int, default=1, metavar='S',
+					help='random seed (default: 1)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
 					help='number of data loading workers (default: 8)')
 parser.add_argument('-b', '--batch-size', default=1000, type=int,
@@ -159,24 +159,30 @@ def main():
 	# 	print("Training acc of the lr for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
 	# 	print("Testing acc of the lr for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
 
-	for kernel in [linear_kernel, partial(rbf_kernel, 1, 230)]:
-	# for p1 in range(100, 1000, 10):
-	# 	kernel = partial(rbf_kernel, 1, p1)
-	# 	print(p1)
-		with torch.no_grad():
-			_, eigenfuncs_nystrom, _ = nystrom(X.cpu()[np.random.choice(X.shape[0], 6000, replace=False)].contiguous().contiguous(), args.k, kernel)
-			X_projected_by_nystrom, X_val_projected_by_nystrom = [], []
-			with torch.cuda.amp.autocast():
-				for i in range(0, len(X), args.bs):
-					X_projected_by_nystrom.append(eigenfuncs_nystrom(X[i: min(len(X), i+args.bs)].cpu()))
-				for i in range(0, len(X_val), args.bs):
-					X_val_projected_by_nystrom.append(eigenfuncs_nystrom(X_val[i: min(len(X_val), i+args.bs)].cpu()))
-			X_projected_by_nystrom = torch.cat(X_projected_by_nystrom).float()
-			X_val_projected_by_nystrom = torch.cat(X_val_projected_by_nystrom).float()
-		clf = SGDClassifier(loss='log')
-		clf.fit(X_projected_by_nystrom, Y)
-		print("Training acc of the lr for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
-		print("Testing acc of the lr for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
+	for kernel in [partial(polynomial_kernel, 10, 0.001, 1), partial(rbf_kernel, 1, 100)]:
+	# for p1, p2 in itertools.product( [1], range(0, 1100,100)):
+		# p1 = 1 #p1 / 10000.  #/ 500. - 1.2
+		# p2 = p2 / 1000.
+		# kernel = partial(polynomial_kernel, 4, p1, p2)
+		# print(p1, p2)
+		try:
+			with torch.no_grad():
+				_, eigenfuncs_nystrom, _ = nystrom(X.cpu()[np.random.choice(X.shape[0], 6000, replace=False)].contiguous().contiguous(), args.k, kernel)
+				X_projected_by_nystrom, X_val_projected_by_nystrom = [], []
+				with torch.cuda.amp.autocast():
+					for i in range(0, len(X), args.bs):
+						X_projected_by_nystrom.append(eigenfuncs_nystrom(X[i: min(len(X), i+args.bs)].cpu()))
+					for i in range(0, len(X_val), args.bs):
+						X_val_projected_by_nystrom.append(eigenfuncs_nystrom(X_val[i: min(len(X_val), i+args.bs)].cpu()))
+				X_projected_by_nystrom = torch.cat(X_projected_by_nystrom).float()
+				X_val_projected_by_nystrom = torch.cat(X_val_projected_by_nystrom).float()
+
+			clf = SGDClassifier(loss='log')
+			clf.fit(X_projected_by_nystrom, Y)
+			print("Training acc of the lr for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
+			print("Testing acc of the lr for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
+		except:
+			pass
 
 	# perform our method
 	random_model = ConvNet(args.arch, args.bhs_r, input_size=[1, 28, 28], output_size=1).to(device)
