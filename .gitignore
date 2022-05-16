@@ -3,3 +3,10 @@ __pycache__
 CIFAR-10-C
 .DS_Store
 tmp
+cifar_plots/
+corrupted_results/
+framework*
+mnist_plots/
+nngp_plots/
+toy_plots/
+unused/
