@@ -32,8 +32,8 @@ python neuralef-mnist-cnngpkernels.py
 
 #### Estimate the eigenfunctions of the NTK corresponding to a binary classifier
 ```
-python neuralef-cifar-ntks.py --nef-amp --classes 0 1 --ood-classes 8 9 --draw \
-                              --resume path/to/pretrained_models
+python neuralef-cifar-ntks.py --nef-amp --classes 0 1 --ood-classes 8 9 \
+                              --resume path/to/pretrained
 ```
 
 #### Leverage NeuralEF to accelerate linearized Laplace approximation
@@ -45,7 +45,7 @@ python neuralef-cifar-ntks.py --nef-amp --ntk-std-scale 20
 ```
 python neuralef-cifar-sgd-trajectory.py --data-dir path/to/data \
                                         --nef-amp --nef-class-cond --swa-lr 0.1 \
-                                        --pre-trained-dir path/to/pretrained_models
+                                        --pre-trained-dir path/to/pretrained
 ```
 
 ## Giving Credit
