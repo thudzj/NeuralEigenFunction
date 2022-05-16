@@ -1,4 +1,3 @@
-# g20: CUDA_VISIBLE_DEVICES=2 python f-eigengame-toy.py
 import math
 from typing import List, Tuple
 from functools import partial
@@ -30,45 +29,10 @@ from torch.distributions import MultivariateNormal
 from utils import nystrom, psd_safe_cholesky, rbf_kernel, \
 	polynomial_kernel, periodic_plus_rbf_kernel, build_mlp_given_config, ParallelMLP
 
-Tensor = torch.Tensor
-FloatTensor = torch.FloatTensor
-
-# class PolynomialEigenFunctions(nn.Module):
-	# def __init__(self, k, r=5, momentum=0.9, normalize_over=[0], for_spin=False):
-	# 	super(PolynomialEigenFunctions, self).__init__()
-	# 	self.momentum = momentum
-	# 	self.normalize_over = normalize_over
-	# 	self.for_spin = for_spin
-	# 	self.register_parameter('w', nn.Parameter(torch.randn(r + 1, k) * 1e-3))
-	# 	self.register_buffer('eigennorm', torch.zeros(k))
-	# 	self.register_buffer('num_calls', torch.Tensor([0]))
-	#
-	# def forward(self, x):
-	# 	with torch.no_grad():
-	# 		results = [torch.ones(x.shape[0], device=x.device)]
-	# 		for _ in range(1, self.w.shape[0]):
-	# 			results.append(results[-1] * x.squeeze())
-	# 		results = torch.stack(results, 1)
-	# 	ret_raw = results @ self.w
-	# 	if self.for_spin:
-	# 		return ret_raw
-	#
-	# 	if self.training:
-	# 		norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(
-	# 					np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
-	# 		with torch.no_grad():
-	# 			if self.num_calls == 0:
-	# 				self.eigennorm.copy_(norm_.data)
-	# 			else:
-	# 				self.eigennorm.mul_(self.momentum).add_(
-	# 					norm_.data, alpha = 1-self.momentum)
-	# 			self.num_calls += 1
-	# 	else:
-	# 		norm_ = self.eigennorm
-	# 	return ret_raw / norm_
-
 class NeuralEigenFunctions(nn.Module):
-	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1, hidden_size=32, num_layers=3, output_size=1,  momentum=0.9, normalize_over=[0]):
+	def __init__(self, k, nonlinearity='sin_and_cos', input_size=1,
+				 hidden_size=32, num_layers=3, output_size=1, momentum=0.9,
+				 normalize_over=[0]):
 		super(NeuralEigenFunctions, self).__init__()
 		self.momentum = momentum
 		self.normalize_over = normalize_over
@@ -80,7 +44,7 @@ class NeuralEigenFunctions(nn.Module):
 		ret_raw = self.fn(x).squeeze()
 		if self.training:
 			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(
-						np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
+				np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
 			with torch.no_grad():
 				if self.num_calls == 0:
 					self.eigennorm.copy_(norm_.data)
@@ -92,7 +56,7 @@ class NeuralEigenFunctions(nn.Module):
 			norm_ = self.eigennorm
 		return ret_raw / norm_
 
-def our(model_class, X_, X_val_, k, kernel, riemannian_projection, max_grad_norm):
+def our(model_class, X_, X_val_, k, kernel):
 	X = X_.cuda()
 	X_val = X_val_.cuda()
 	lr = 1e-3
@@ -100,7 +64,6 @@ def our(model_class, X_, X_val_, k, kernel, riemannian_projection, max_grad_norm
 	B = min(256, X.shape[0])
 	K = kernel(X)
 
-	# perform our method
 	start = timer()
 	nef = model_class(k).cuda()
 	optimizer = torch.optim.Adam(nef.parameters(), lr=lr)
@@ -122,11 +85,6 @@ def our(model_class, X_, X_val_, k, kernel, riemannian_projection, max_grad_norm
 				eigenvalues = psis_K_psis.diag() / (B**2)
 			else:
 				eigenvalues.mul_(0.9).add_(psis_K_psis.diag() / (B**2), alpha = 0.1)
-			if riemannian_projection:
-				grad.sub_((psis_X*grad).sum(0) * psis_X / B)
-			if max_grad_norm is not None:
-				clip_coef = max_grad_norm / (grad.norm(dim=0) + 1e-6)
-				grad.mul_(clip_coef)
 
 		optimizer.zero_grad()
 		psis_X.backward(-grad)
@@ -250,32 +208,21 @@ def main():
 	x_dim = 1
 	x_range = [-2, 2]
 	k = 10
-	riemannian_projection = False
-	max_grad_norm = None
-	model_class = NeuralEigenFunctions # PolynomialEigenFunctions
-	for kernel_type in ['rbf', 'polynomial']: # polynomial rbf #, 'periodic_plus_rbf']: #
+	model_class = NeuralEigenFunctions
+	for kernel_type in ['rbf', 'polynomial']:
 		if kernel_type == 'rbf':
 			kernel = partial(rbf_kernel, 1, 1)
-			ylim = [-2., 2.]
-		elif kernel_type == 'periodic_plus_rbf':
-			kernel = partial(periodic_plus_rbf_kernel, 1.5, 1, 1, 1, 1)
-			x_range = [-1., 1.]
-			ylim = [-2., 2.]
-		elif kernel_type == 'cosine':
-			kernel = partial(cosine_kernel, 4, 1, 1)
 			ylim = [-2., 2.]
 		elif kernel_type == 'polynomial':
 			kernel = partial(polynomial_kernel, 4, 1, 1.5)
 			x_range = [-1., 1.]
 			ylim = [-3., 3.]
-		elif kernel_type == 'sigmoid':
-			kernel = partial(sigmoid_kernel, 1, 2)
-			x_range = [-1, 1]
-			ylim = [-2., 2.]
+		else:
+			raise NotImplementedError
 
 		X_val = torch.arange(x_range[0], x_range[1],
 					(x_range[1] - x_range[0]) / 2000.).view(-1, 1)
-		# NS = [64, 256, 1024, 4096]
+
 		NS = [64, 512, 8192]
 		XS = [torch.empty(NS[-1], x_dim).uniform_(x_range[0], x_range[1])]
 		for N in NS[:-1]:
@@ -285,8 +232,7 @@ def main():
 		eigenvalues_our_list, projections_our_list, cost_our_list = [], [], []
 		projections_spin_list, cost_spin_list = [], []
 		for X in XS:
-			eigenvalues_our, projections_our, c = our(model_class, X, X_val, k, kernel,
-										  riemannian_projection, max_grad_norm)
+			eigenvalues_our, projections_our, c = our(model_class, X, X_val, k, kernel)
 			eigenvalues_our_list.append(eigenvalues_our)
 			projections_our_list.append(projections_our)
 			cost_our_list.append(c)
@@ -336,16 +282,6 @@ def main():
 		else:
 			ax.set_title(' ', pad=20)
 
-		# ax = fig.add_subplot(143)
-		# plot_efs(ax, X_val,
-		# 		 [projections_nystrom_list[2], projections_spin_list[2], projections_our_list[2]],
-		# 		 label_list, linestyle_list,
-		# 		 3, x_range, ylim)
-		# if kernel_type != 'rbf':
-		# 	ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[2]), pad=20)
-		# else:
-		# 	ax.set_title(' ', pad=20)
-
 		# compare eigenfunctions
 		ax = fig.add_subplot(143)
 		plot_efs(ax, X_val,
@@ -363,22 +299,18 @@ def main():
 		ax.tick_params(axis='y', which='minor', labelsize=12)
 		ax.tick_params(axis='x', which='major', labelsize=12)
 		ax.tick_params(axis='x', which='minor', labelsize=12)
-		# sns.color_palette()
 		ax.plot(range(1, len(NS) + 1), cost_nystrom_list, label='Nyström', color='k')
 		ax.plot(range(1, len(NS) + 1), cost_spin_list, label='SpIN', linestyle='dotted', color='k')
 		ax.plot(range(1, len(NS) + 1), cost_our_list, label='Our', linestyle='dashdot', color='k')
 		ax.set_xlim(1, len(NS) + 0.2)
 		ax.set_xticks(range(1, len(NS) + 1))
 		ax.set_xticklabels(NS)
-		# ax.set_ylim(ylim[0], ylim[1])
 		ax.set_xlabel('Number of samples')
 		ax.set_ylabel('Training time (s)')
 		ax.spines['bottom'].set_color('gray')
 		ax.spines['top'].set_color('gray')
 		ax.spines['right'].set_color('gray')
 		ax.spines['left'].set_color('gray')
-		# ax.spines['right'].set_visible(False)
-		# ax.spines['top'].set_visible(False)
 		ax.set_axisbelow(True)
 		ax.grid(axis='y', color='lightgray', linestyle='--')
 		ax.grid(axis='x', color='lightgray', linestyle='--')
@@ -389,7 +321,9 @@ def main():
 			ax.set_title(' ', pad=20)
 
 		if kernel_type == 'rbf':
-			fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.08), ncol=9, fancybox=True, shadow=True, prop={'size':16})
+			fig.legend(handles, labels, loc='lower center',
+					   bbox_to_anchor=(0.5, -0.08), ncol=9,
+					   fancybox=True, shadow=True, prop={'size':16})
 			fig.tight_layout()
 			fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type),
 						format='pdf', dpi=1000, bbox_inches='tight')

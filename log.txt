@@ -1,0 +1,252 @@
+# g20: CUDA_VISIBLE_DEVICES=2 python f-eigengame-toy.py
+CUDA_VISIBLE_DEVICES=2 python f-eigengame-nngp.py
+
+
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=5 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular/ --k 10 --num-samples 2000 --job-id 0  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet2
+	Training acc of the lr for data projected by nystrom: 0.77415
+	Testing acc of the lr for data projected by nystrom: 0.78
+	Training acc of the lr for data projected by nystrom: 0.7675666666666666
+	Testing acc of the lr for data projected by nystrom: 0.7755
+
+	Training acc of the lr: 0.84215
+	Testing acc of the lr: 0.8498
+
+----- not used -----
+# run on g20
+# CUDA_VISIBLE_DEVICES=6 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular --k 10 --num-samples 2000 --b-var-r 0.01 --job-id 6  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet1
+# 	Training acc of the linear svc: 0.7791166666666667
+# 	Testing acc of the linear svc: 0.7846
+# 	Training acc of the lr: 0.7697666666666667
+# 	Testing acc of the lr: 0.776
+#
+# 	Training acc of the l-svc for data projected by nystrom: 0.77825
+# 	Testing acc of the l-svc for data projected by nystrom: 0.7886
+# 	Training acc of the lr for data projected by nystrom: 0.7687
+# 	Testing acc of the lr for data projected by nystrom: 0.7781
+#
+# 	Training acc of the l-svc for data projected by pca: 0.6986166666666667
+# 	Testing acc of the l-svc for data projected by pca: 0.699
+# 	Training acc of the lr for data projected by pca: 0.73265
+# 	Testing acc of the lr for data projected by pca: 0.7442
+
+
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32  --ood-classes 8 9 --draw --resume auto (--nef-resume snapshots//resnet20-ntk-bs256-ip32/nef_checkpoint_199.th)
+	Clustering acc on in-dis. validation data 0.678
+	Clustering acc given clf features on in-dis. validation data 0.9895
+	Clustering acc given eigen projections on in-dis. validation data 0.9745
+	Clustering acc on ood validation data 0.504
+	Clustering acc given clf features on ood validation data 0.979
+	Clustering acc given eigen projections on ood validation data 0.795
+
+	cd tmp/; python plot.py
+
+
+CUDA_VISIBLE_DEVICES=7 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32-10cls --ntk-std-scale 20 (--nef-resume snapshots/resnet20-ntk-bs256-ip32-10cls/nef_checkpoint_199.th --num-samples 1)
+	Test set: Average loss: 0.3567, Accuracy: 0.9193  ECE: 0.0487
+	Test set: Average loss: 0.2767, Accuracy: 0.9200  ECE: 0.0162
+	kron laplace: Test set: Average loss: 0.9060, Accuracy: 0.9149  ECE: 0.4683
+	diag laplace: Test set: Average loss: 0.9338, Accuracy: 0.9136  ECE: 0.4803
+	last-layer laplace: Test set: Average loss: 0.2642, Accuracy: 0.9186  ECE: 0.0255
+CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet32 --job-id resnet32-ntk-bs256-ip32-10cls --ntk-std-scale 20
+	Test set: Average loss: 0.3696, Accuracy: 0.9205  ECE: 0.0515
+    Test set: Average loss: 0.2611, Accuracy: 0.9202  ECE: 0.0113
+CUDA_VISIBLE_DEVICES=3 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet56 --job-id resnet56-ntk-bs256-ip32-10cls --ntk-std-scale 20
+	Test set: Average loss: 0.3358, Accuracy: 0.9245  ECE: 0.0496
+    Test set: Average loss: 0.2342, Accuracy: 0.9238  ECE: 0.0118
+	kron laplace: Test set: Average loss: 1.5763, Accuracy: 0.9197  ECE: 0.7055
+	diag laplace: Test set: Average loss: 1.6059, Accuracy: 0.9191  ECE: 0.7116
+	last-layer laplace: Test set: Average loss: 0.2311, Accuracy: 0.9242  ECE: 0.0235
+CUDA_VISIBLE_DEVICES=4 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet110 --job-id resnet110-ntk-bs256-ip32-10cls --ntk-std-scale 20
+	Test set: Average loss: 0.3454, Accuracy: 0.9284  ECE: 0.0463
+    Test set: Average loss: 0.2404, Accuracy: 0.9273  ECE: 0.0088
+	kron laplace: Test set: Average loss: 1.7668, Accuracy: 0.9233  ECE: 0.7486
+	diag laplace: Test set: Average loss: 1.7970, Accuracy: 0.9227  ECE: 0.7535
+	last-layer laplace: Test set: Average loss: 0.2328, Accuracy: 0.9286  ECE: 0.0194
+
+
+
+
+
+
+
+
+
+
+[3441, 50000, 10]
+
+
+CUDA_VISIBLE_DEVICES=0 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet20-cc-swalr0.1 --clf-arch resnet20 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet20-cc-swalr0.1
+	Performance of classifier
+        On in-distribution test data
+        Test set: Average loss: 0.3567, Accuracy: 0.9194, ECE: 0.0486
+        On out-of-distribution test data
+        Test set: Average loss: 10.4488, Accuracy: 0.1091, ECE: 0.7482
+        AUROC is 0.8525
+	Performance of swa classifier
+        On in-distribution test data
+        Test set: Average loss: 0.2390, Accuracy: 0.9264, ECE: 0.0254
+        On out-of-distribution test data
+        Test set: Average loss: 5.7104, Accuracy: 0.0937, ECE: 0.5566
+        AUROC is 0.9457
+	Performance of swag classifier (CUDA_VISIBLE_DEVICES=6 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet20-swag-swalr0.1 --clf-arch resnet20  --swa-lr 0.1 --resume snapshots/resnet20-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
+        On in-distribution test data
+        Test set: Average loss: 0.2247, Accuracy: 0.9256, ECE: 0.0071
+        On out-of-distribution test data
+        Test set: Average loss: 4.7835, Accuracy: 0.0998, ECE: 0.4787
+        AUROC is 0.9528
+	Performance of classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.2956, Accuracy: 0.9196, ECE: 0.0291
+        On out-of-distribution test data
+        Test set: Average loss: 9.9792, Accuracy: 0.1093, ECE: 0.7136
+        AUROC is 0.8143
+	Performance of swa classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.2229, Accuracy: 0.9256, ECE: 0.0079
+        On out-of-distribution test data
+        Test set: Average loss: 5.4191, Accuracy: 0.0937, ECE: 0.5065
+        AUROC is 0.9332
+
+CUDA_VISIBLE_DEVICES=2 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-cc-swalr0.1 --clf-arch resnet32 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet32-cc-swalr0.1
+	Performance of classifier
+        On in-distribution test data
+        Test set: Average loss: 0.3696, Accuracy: 0.9203, ECE: 0.0517
+        On out-of-distribution test data
+        Test set: Average loss: 10.4330, Accuracy: 0.0908, ECE: 0.7646
+        AUROC is 0.8795
+	Performance of swa classifier
+        On in-distribution test data
+        Test set: Average loss: 0.2349, Accuracy: 0.9271, ECE: 0.0265
+        On out-of-distribution test data
+        Test set: Average loss: 5.8156, Accuracy: 0.0873, ECE: 0.5814
+        AUROC is 0.9402
+	Performance of swag classifier(CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-swag-swalr0.1 --clf-arch resnet32  --swa-lr 0.1 --resume snapshots/resnet32-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
+		On in-distribution test data
+        Test set: Average loss: 0.2126, Accuracy: 0.9264, ECE: 0.0058
+        On out-of-distribution test data
+        Test set: Average loss: 5.2045, Accuracy: 0.0897, ECE: 0.5040
+        AUROC is 0.9377
+	Performance of classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.3081, Accuracy: 0.9214, ECE: 0.0358
+        On out-of-distribution test data
+        Test set: Average loss: 10.0267, Accuracy: 0.0909, ECE: 0.7360
+        AUROC is 0.8492
+	Performance of swa classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.2160, Accuracy: 0.9276, ECE: 0.0067
+        On out-of-distribution test data
+        Test set: Average loss: 5.5620, Accuracy: 0.0874, ECE: 0.5394
+        AUROC is 0.9257
+
+CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-cc-swalr0.1 --clf-arch resnet56 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet56-cc-swalr0.1
+	Performance of classifier
+        On in-distribution test data
+        Test set: Average loss: 0.3358, Accuracy: 0.9243, ECE: 0.0497
+        On out-of-distribution test data
+        Test set: Average loss: 9.9513, Accuracy: 0.0904, ECE: 0.7398
+        AUROC is 0.9049
+	Performance of swa classifier
+        On in-distribution test data
+        Test set: Average loss: 0.2104, Accuracy: 0.9359, ECE: 0.0263
+        On out-of-distribution test data
+        Test set: Average loss: 5.1433, Accuracy: 0.0939, ECE: 0.5476
+        AUROC is 0.9598
+	Performance of swag classifier (CUDA_VISIBLE_DEVICES=6 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-swag-swalr0.1 --clf-arch resnet56  --swa-lr 0.1 --resume snapshots/resnet56-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
+        On in-distribution test data
+        Test set: Average loss: 0.1887, Accuracy: 0.9343, ECE: 0.0055
+        On out-of-distribution test data
+        Test set: Average loss: 4.7064, Accuracy: 0.0945, ECE: 0.4798
+        AUROC is 0.9561
+	Performance of classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.2711, Accuracy: 0.9241, ECE: 0.0333
+        On out-of-distribution test data
+        Test set: Average loss: 9.4138, Accuracy: 0.0904, ECE: 0.7002
+        AUROC is 0.8806
+	Performance of swa classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.1905, Accuracy: 0.9364, ECE: 0.0051
+        On out-of-distribution test data
+        Test set: Average loss: 4.8565, Accuracy: 0.0935, ECE: 0.4941
+        AUROC is 0.9511
+
+CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-cc-swalr0.1 --clf-arch resnet110 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet110-cc-swalr0.1
+	Performance of classifier
+        On in-distribution test data
+        Test set: Average loss: 0.3455, Accuracy: 0.9285, ECE: 0.0463
+        On out-of-distribution test data
+        Test set: Average loss: 13.6674, Accuracy: 0.0908, ECE: 0.8106
+        AUROC is 0.8207
+	Performance of swa classifier
+        On in-distribution test data
+        Test set: Average loss: 0.2031, Accuracy: 0.9385, ECE: 0.0245
+        On out-of-distribution test data
+        Test set: Average loss: 5.6235, Accuracy: 0.0913, ECE: 0.5844
+        AUROC is 0.9439
+	Performance of swag classifier (CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-swag-swalr0.1 --clf-arch resnet110  --swa-lr 0.1 --resume snapshots/resnet110-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
+        On in-distribution test data
+        Test set: Average loss: 0.1882, Accuracy: 0.9371, ECE: 0.0059
+        On out-of-distribution test data
+        Test set: Average loss: 4.8265, Accuracy: 0.0894, ECE: 0.5066
+        AUROC is 0.9411
+	Performance of classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.2873, Accuracy: 0.9288, ECE: 0.0320
+        On out-of-distribution test data
+        Test set: Average loss: 12.9351, Accuracy: 0.0910, ECE: 0.7796
+        AUROC is 0.7860
+	Performance of swa classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.1851, Accuracy: 0.9387, ECE: 0.0048
+        On out-of-distribution test data
+        Test set: Average loss: 5.2531, Accuracy: 0.0914, ECE: 0.5247
+        AUROC is 0.9368
+
+
+--------------- our best swa-lr wide resnet-------------
+CUDA_VISIBLE_DEVICES=5 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id wrn1610-cc-swalr0.01 --clf-arch wrn16_10 --milestones 50 90 120 --gamma 0.2 --nesterov --weight-decay 5e-4 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.01 --pre-trained-dir snapshots/wrn1610-cc-swalr0.01
+	Performance of classifier
+        On in-distribution test data
+        Test set: Average loss: 0.1559, Accuracy: 0.9562, ECE: 0.0189
+        On out-of-distribution test data
+        Test set: Average loss: 4.7546, Accuracy: 0.1096, ECE: 0.5952
+        AUROC is 0.9457
+	Performance of swa classifier
+        On in-distribution test data
+        Test set: Average loss: 0.1369, Accuracy: 0.9625, ECE: 0.0160
+        On out-of-distribution test data
+        Test set: Average loss: 4.1903, Accuracy: 0.1258, ECE: 0.5089
+        AUROC is 0.9771
+	Performance of swag classifier (CUDA_VISIBLE_DEVICES=1 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id wrn1610-swag-swalr0.01 --clf-arch wrn16_10 --milestones 50 90 120 --gamma 0.2 --nesterov --weight-decay 5e-4 --swa-lr 0.01 --resume snapshots/wrn1610-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
+        On in-distribution test data
+        Test set: Average loss: 0.1221, Accuracy: 0.9616, ECE: 0.0046
+        On out-of-distribution test data
+        Test set: Average loss: 3.7301, Accuracy: 0.1230, ECE: 0.4097
+        AUROC is 0.9851
+	Performance of classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.1455, Accuracy: 0.9560, ECE: 0.0106
+        On out-of-distribution test data
+        Test set: Average loss: 4.6149, Accuracy: 0.1096, ECE: 0.5701
+        AUROC is 0.9395
+	Performance of swa classifier w/ nef
+        On in-distribution test data
+        Test set: Average loss: 0.1266, Accuracy: 0.9625, ECE: 0.0099
+        On out-of-distribution test data
+        Test set: Average loss: 4.0840, Accuracy: 0.1260, ECE: 0.4817
+        AUROC is 0.9766

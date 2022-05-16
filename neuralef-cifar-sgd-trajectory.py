@@ -1,169 +1,3 @@
-'''
-[3441, 50000, 10]
-
-
-CUDA_VISIBLE_DEVICES=0 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet20-cc-swalr0.1 --clf-arch resnet20 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet20-cc-swalr0.1
-	Performance of classifier
-        On in-distribution test data
-        Test set: Average loss: 0.3567, Accuracy: 0.9194, ECE: 0.0486
-        On out-of-distribution test data
-        Test set: Average loss: 10.4488, Accuracy: 0.1091, ECE: 0.7482
-        AUROC is 0.8525
-	Performance of swa classifier
-        On in-distribution test data
-        Test set: Average loss: 0.2390, Accuracy: 0.9264, ECE: 0.0254
-        On out-of-distribution test data
-        Test set: Average loss: 5.7104, Accuracy: 0.0937, ECE: 0.5566
-        AUROC is 0.9457
-	Performance of swag classifier (CUDA_VISIBLE_DEVICES=6 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet20-swag-swalr0.1 --clf-arch resnet20  --swa-lr 0.1 --resume snapshots/resnet20-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
-        On in-distribution test data
-        Test set: Average loss: 0.2247, Accuracy: 0.9256, ECE: 0.0071
-        On out-of-distribution test data
-        Test set: Average loss: 4.7835, Accuracy: 0.0998, ECE: 0.4787
-        AUROC is 0.9528
-	Performance of classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.2956, Accuracy: 0.9196, ECE: 0.0291
-        On out-of-distribution test data
-        Test set: Average loss: 9.9792, Accuracy: 0.1093, ECE: 0.7136
-        AUROC is 0.8143
-	Performance of swa classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.2229, Accuracy: 0.9256, ECE: 0.0079
-        On out-of-distribution test data
-        Test set: Average loss: 5.4191, Accuracy: 0.0937, ECE: 0.5065
-        AUROC is 0.9332
-
-CUDA_VISIBLE_DEVICES=2 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-cc-swalr0.1 --clf-arch resnet32 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet32-cc-swalr0.1
-	Performance of classifier
-        On in-distribution test data
-        Test set: Average loss: 0.3696, Accuracy: 0.9203, ECE: 0.0517
-        On out-of-distribution test data
-        Test set: Average loss: 10.4330, Accuracy: 0.0908, ECE: 0.7646
-        AUROC is 0.8795
-	Performance of swa classifier
-        On in-distribution test data
-        Test set: Average loss: 0.2349, Accuracy: 0.9271, ECE: 0.0265
-        On out-of-distribution test data
-        Test set: Average loss: 5.8156, Accuracy: 0.0873, ECE: 0.5814
-        AUROC is 0.9402
-	Performance of swag classifier(CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet32-swag-swalr0.1 --clf-arch resnet32  --swa-lr 0.1 --resume snapshots/resnet32-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
-		On in-distribution test data
-        Test set: Average loss: 0.2126, Accuracy: 0.9264, ECE: 0.0058
-        On out-of-distribution test data
-        Test set: Average loss: 5.2045, Accuracy: 0.0897, ECE: 0.5040
-        AUROC is 0.9377
-	Performance of classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.3081, Accuracy: 0.9214, ECE: 0.0358
-        On out-of-distribution test data
-        Test set: Average loss: 10.0267, Accuracy: 0.0909, ECE: 0.7360
-        AUROC is 0.8492
-	Performance of swa classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.2160, Accuracy: 0.9276, ECE: 0.0067
-        On out-of-distribution test data
-        Test set: Average loss: 5.5620, Accuracy: 0.0874, ECE: 0.5394
-        AUROC is 0.9257
-
-CUDA_VISIBLE_DEVICES=3 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-cc-swalr0.1 --clf-arch resnet56 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet56-cc-swalr0.1
-	Performance of classifier
-        On in-distribution test data
-        Test set: Average loss: 0.3358, Accuracy: 0.9243, ECE: 0.0497
-        On out-of-distribution test data
-        Test set: Average loss: 9.9513, Accuracy: 0.0904, ECE: 0.7398
-        AUROC is 0.9049
-	Performance of swa classifier
-        On in-distribution test data
-        Test set: Average loss: 0.2104, Accuracy: 0.9359, ECE: 0.0263
-        On out-of-distribution test data
-        Test set: Average loss: 5.1433, Accuracy: 0.0939, ECE: 0.5476
-        AUROC is 0.9598
-	Performance of swag classifier (CUDA_VISIBLE_DEVICES=6 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet56-swag-swalr0.1 --clf-arch resnet56  --swa-lr 0.1 --resume snapshots/resnet56-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
-        On in-distribution test data
-        Test set: Average loss: 0.1887, Accuracy: 0.9343, ECE: 0.0055
-        On out-of-distribution test data
-        Test set: Average loss: 4.7064, Accuracy: 0.0945, ECE: 0.4798
-        AUROC is 0.9561
-	Performance of classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.2711, Accuracy: 0.9241, ECE: 0.0333
-        On out-of-distribution test data
-        Test set: Average loss: 9.4138, Accuracy: 0.0904, ECE: 0.7002
-        AUROC is 0.8806
-	Performance of swa classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.1905, Accuracy: 0.9364, ECE: 0.0051
-        On out-of-distribution test data
-        Test set: Average loss: 4.8565, Accuracy: 0.0935, ECE: 0.4941
-        AUROC is 0.9511
-
-CUDA_VISIBLE_DEVICES=4 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-cc-swalr0.1 --clf-arch resnet110 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.1 --pre-trained-dir snapshots/resnet110-cc-swalr0.1
-	Performance of classifier
-        On in-distribution test data
-        Test set: Average loss: 0.3455, Accuracy: 0.9285, ECE: 0.0463
-        On out-of-distribution test data
-        Test set: Average loss: 13.6674, Accuracy: 0.0908, ECE: 0.8106
-        AUROC is 0.8207
-	Performance of swa classifier
-        On in-distribution test data
-        Test set: Average loss: 0.2031, Accuracy: 0.9385, ECE: 0.0245
-        On out-of-distribution test data
-        Test set: Average loss: 5.6235, Accuracy: 0.0913, ECE: 0.5844
-        AUROC is 0.9439
-	Performance of swag classifier (CUDA_VISIBLE_DEVICES=7 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id resnet110-swag-swalr0.1 --clf-arch resnet110  --swa-lr 0.1 --resume snapshots/resnet110-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
-        On in-distribution test data
-        Test set: Average loss: 0.1882, Accuracy: 0.9371, ECE: 0.0059
-        On out-of-distribution test data
-        Test set: Average loss: 4.8265, Accuracy: 0.0894, ECE: 0.5066
-        AUROC is 0.9411
-	Performance of classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.2873, Accuracy: 0.9288, ECE: 0.0320
-        On out-of-distribution test data
-        Test set: Average loss: 12.9351, Accuracy: 0.0910, ECE: 0.7796
-        AUROC is 0.7860
-	Performance of swa classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.1851, Accuracy: 0.9387, ECE: 0.0048
-        On out-of-distribution test data
-        Test set: Average loss: 5.2531, Accuracy: 0.0914, ECE: 0.5247
-        AUROC is 0.9368
-
-
---------------- our best swa-lr wide resnet-------------
-CUDA_VISIBLE_DEVICES=5 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id wrn1610-cc-swalr0.01 --clf-arch wrn16_10 --milestones 50 90 120 --gamma 0.2 --nesterov --weight-decay 5e-4 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --nef-class-cond --swa-lr 0.01 --pre-trained-dir snapshots/wrn1610-cc-swalr0.01
-	Performance of classifier
-        On in-distribution test data
-        Test set: Average loss: 0.1559, Accuracy: 0.9562, ECE: 0.0189
-        On out-of-distribution test data
-        Test set: Average loss: 4.7546, Accuracy: 0.1096, ECE: 0.5952
-        AUROC is 0.9457
-	Performance of swa classifier
-        On in-distribution test data
-        Test set: Average loss: 0.1369, Accuracy: 0.9625, ECE: 0.0160
-        On out-of-distribution test data
-        Test set: Average loss: 4.1903, Accuracy: 0.1258, ECE: 0.5089
-        AUROC is 0.9771
-	Performance of swag classifier (CUDA_VISIBLE_DEVICES=1 python f-eigengame-cifar-sgd-trajectory.py --data-dir /data/zhijie/data --job-id wrn1610-swag-swalr0.01 --clf-arch wrn16_10 --milestones 50 90 120 --gamma 0.2 --nesterov --weight-decay 5e-4 --swa-lr 0.01 --resume snapshots/wrn1610-cc-swalr0.1/checkpoint_150.th --swag --nef-collect-freq 1000000)
-        On in-distribution test data
-        Test set: Average loss: 0.1221, Accuracy: 0.9616, ECE: 0.0046
-        On out-of-distribution test data
-        Test set: Average loss: 3.7301, Accuracy: 0.1230, ECE: 0.4097
-        AUROC is 0.9851
-	Performance of classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.1455, Accuracy: 0.9560, ECE: 0.0106
-        On out-of-distribution test data
-        Test set: Average loss: 4.6149, Accuracy: 0.1096, ECE: 0.5701
-        AUROC is 0.9395
-	Performance of swa classifier w/ nef
-        On in-distribution test data
-        Test set: Average loss: 0.1266, Accuracy: 0.9625, ECE: 0.0099
-        On out-of-distribution test data
-        Test set: Average loss: 4.0840, Accuracy: 0.1260, ECE: 0.4817
-        AUROC is 0.9766
-'''
 import argparse
 import os
 import shutil
@@ -212,8 +46,6 @@ parser.add_argument('--data-dir', dest='data_dir',
 					help='The directory saving the data',
 					default='/data/LargeData/Regular/cifar', type=str)
 parser.add_argument('--job-id', default='default', type=str)
-# parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
-# 					help='evaluate model on validation set')
 
 # for specifying the classifier
 parser.add_argument('--epochs', default=200, type=int, metavar='N',
@@ -244,20 +76,17 @@ parser.add_argument('--clf-in-planes', type=int, default=16)
 
 # for specifying the neural eigenfunctions
 parser.add_argument('--pre-trained-dir', default='', type=str)
-# parser.add_argument('--nef-collect-start', default=155, type=int)
 parser.add_argument('--nef-resume', default='', type=str)
 parser.add_argument('--nef-collect-freq', default=5, type=int)
 parser.add_argument('--nef-batch-size-collect', default=1000, type=int)
-parser.add_argument('--nef-batch-size', default=128, type=int)
+parser.add_argument('--nef-batch-size', default=256, type=int)
 parser.add_argument('--nef-arch', type=str, default='resnet20')
-parser.add_argument('--nef-in-planes', type=int, default=16)
+parser.add_argument('--nef-in-planes', type=int, default=32)
 parser.add_argument('--nef-k', default=10, type=int)
 parser.add_argument('--nef-lr', default=1e-3, type=float)
 parser.add_argument('--nef-momentum', default=0.9, type=float)
 parser.add_argument('--nef-optimizer-type', default='Adam', type=str)
-parser.add_argument('--nef-epochs', default=100, type=int)
-parser.add_argument('--nef-riemannian-projection', action='store_true')
-parser.add_argument('--nef-max-grad-norm', default=None, type=float)
+parser.add_argument('--nef-epochs', default=200, type=int)
 parser.add_argument('--nef-num-samples-eval', default=256, type=int)
 parser.add_argument('--nef-class-cond', action='store_true')
 parser.add_argument('--nef-amp', action='store_true')
@@ -329,9 +158,9 @@ def main():
 		checkpoint = torch.load(os.path.join(args.pre_trained_dir,
 			'checkpoint_{}.th'.format(args.epochs-1)), map_location='cpu')
 		swa_classifier.load_state_dict(checkpoint['swa_state_dict'])
-		collected_samples = np.load(os.path.join(args.pre_trained_dir, 'collected_samples.npz'))['arr_0']
+		collected_samples = np.load(os.path.join(
+			args.pre_trained_dir, 'collected_samples.npz'))['arr_0']
 		collected_samples = torch.from_numpy(collected_samples).float()
-		# collected_samples=None
 	else:
 		train_classifier(args, classifier, swa_classifier, swag_classifier,
 						 train_loader, nef_collect_train_loader, val_loader)
@@ -377,12 +206,12 @@ def main():
 	eval_corrupted_data(args, 'swa_clf_{}'.format(args.job_id), None, swa_classifier)
 
 	nef = NeuralEigenFunctions(args.nef_k, args.nef_arch,
-							   args.nef_in_planes, args.num_classes, normalize_over=[0,] if args.nef_class_cond else [0, 1]).cuda()
+							   args.nef_in_planes, args.num_classes,
+							   normalize_over=[0,] if args.nef_class_cond else [0, 1]).cuda()
 	eigenvalues = train_nef(args, nef, collected_samples, classifier, swa_classifier,
 			  nef_train_loader, val_loader, ood_loader,
 			  args.nef_k, args.nef_epochs, args.nef_optimizer_type, args.nef_lr,
-			  args.nef_momentum, args.nef_riemannian_projection,
-			  args.nef_max_grad_norm, args.nef_amp, args.num_classes, args.nef_class_cond)
+			  args.nef_momentum, args.nef_amp, args.num_classes, args.nef_class_cond)
 
 	print("Performance of classifier w/ nef")
 	print("\tOn in-distribution test data")
@@ -408,8 +237,7 @@ def main():
 def train_nef(args, nef, collected_samples, classifier, swa_classifier,
 			  train_loader, val_loader, ood_loader,
 			  k, epochs, optimizer_type, lr,
-			  momentum, riemannian_projection,
-			  max_grad_norm, amp, num_classes, class_cond):
+			  momentum,  amp, num_classes, class_cond):
 
 	num_samples = collected_samples.shape[0]
 	print(collected_samples.shape) # 1000*50000*10
@@ -483,12 +311,6 @@ def train_nef(args, nef, collected_samples, classifier, swa_classifier,
 				else:
 					eigenvalues.mul_(0.9).add_(cur_eigenvalues, alpha = 0.1)
 
-				if riemannian_projection:
-					grad.sub_((psis_X*grad).sum(0) * psis_X / (data.shape[0] if class_cond else psis_X.shape[0]*psis_X.shape[1]))
-				if max_grad_norm is not None:
-					clip_coef = max_grad_norm / (grad.norm(dim=0) + 1e-6)
-					grad.mul_(clip_coef)
-
 			optimizer.zero_grad()
 			if loss_scaler is not None:
 				loss_scaler.scale(psis_X).backward(-grad)
@@ -497,8 +319,6 @@ def train_nef(args, nef, collected_samples, classifier, swa_classifier,
 			else:
 				psis_X.backward(-grad)
 				optimizer.step()
-
-
 
 		print('Training neural eigenfunctions epoch {}'.format(epoch))
 		print('\tEigenvalues:', eigenvalues.data.cpu().numpy())
@@ -652,7 +472,6 @@ def validate(args, val_loader, classifier, nef=None, eigenvalues=None, verbose=T
 				output = classifier(data).float()
 
 			if nef is not None:
-
 				with torch.cuda.amp.autocast():
 					nef_output = nef(data)
 					noise = torch.randn(args.nef_num_samples_eval, *eigenvalues.shape).cuda() * eigenvalues.sqrt()
@@ -660,12 +479,8 @@ def validate(args, val_loader, classifier, nef=None, eigenvalues=None, verbose=T
 						output = torch.einsum("sck,bck->sbc", noise, nef_output) + output
 					else:
 						output = torch.einsum("sk,bck->sbc", noise, nef_output) + output
-
-				# uncs.append(ent(output.softmax(-1).mean(0)) - ent(output.softmax(-1)).mean(0))
 				output = output.softmax(-1).mean(0).log()
-
 			uncs.append(ent(output.softmax(-1)))
-
 			test_loss += F.cross_entropy(output, target).item() * target.size(0)
 			correct += output.argmax(dim=1).eq(target).sum().item()
 			probs.append(output)
@@ -709,7 +524,6 @@ def swag_validate(args, train_loader, val_loader, swag_classifier,
 
 	outputs = torch.stack(outputs)
 	labels = torch.cat(labels)
-	# uncs = ent(outputs.softmax(-1).mean(0)) - ent(outputs.softmax(-1)).mean(0)
 	outputs = outputs.softmax(-1).mean(0)
 	uncs = ent(outputs)
 	confidences, predictions = torch.max(outputs, 1)
@@ -751,7 +565,6 @@ def eval_corrupted_data(args, token='default', train_loader=None, classifier=Non
 				r1, r2, r3, _ = swag_validate(args, train_loader, corrupted_loader,
 											  swag_classifier, verbose=False)
 			results[i, ii] = np.array([r1, r2, r3])
-	# print(results.mean(1)[:, 2])
 	np.save('corrupted_results/npys/{}.npy'.format(token), results)
 
 def ent(p):

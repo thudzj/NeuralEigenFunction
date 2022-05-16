@@ -1,31 +1,3 @@
-'''
-CUDA_VISIBLE_DEVICES=5 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular/ --k 10 --num-samples 2000 --job-id 0  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet2
-	Training acc of the lr for data projected by nystrom: 0.77415
-	Testing acc of the lr for data projected by nystrom: 0.78
-	Training acc of the lr for data projected by nystrom: 0.7675666666666666
-	Testing acc of the lr for data projected by nystrom: 0.7755
-
-	Training acc of the lr: 0.84215
-	Testing acc of the lr: 0.8498
-
------ not used -----
-# run on g20
-# CUDA_VISIBLE_DEVICES=6 python f-eigengame-mnist.py  --data-path /data/LargeData/Regular --k 10 --num-samples 2000 --b-var-r 0.01 --job-id 6  --bhs-r 16 16 16 --bhs 32 64 128 --arch convnet1
-# 	Training acc of the linear svc: 0.7791166666666667
-# 	Testing acc of the linear svc: 0.7846
-# 	Training acc of the lr: 0.7697666666666667
-# 	Testing acc of the lr: 0.776
-#
-# 	Training acc of the l-svc for data projected by nystrom: 0.77825
-# 	Testing acc of the l-svc for data projected by nystrom: 0.7886
-# 	Training acc of the lr for data projected by nystrom: 0.7687
-# 	Testing acc of the lr for data projected by nystrom: 0.7781
-#
-# 	Training acc of the l-svc for data projected by pca: 0.6986166666666667
-# 	Testing acc of the l-svc for data projected by pca: 0.699
-# 	Training acc of the lr for data projected by pca: 0.73265
-# 	Testing acc of the lr for data projected by pca: 0.7442
-'''
 import math
 from functools import partial
 import itertools
@@ -55,9 +27,8 @@ from sklearn import svm
 from sklearn.linear_model import SGDClassifier
 from utils import *
 
-parser = argparse.ArgumentParser(description='Decompose the ConvNet kernel on MNIST')
-parser.add_argument('--data-path', type=str,
-					default='/Users/dengzhijie/Desktop/automl-one/automl-one/data') # '/data/LargeData/Regular')
+parser = argparse.ArgumentParser(description='Decompose the CNN-GP kernel on MNIST')
+parser.add_argument('--data-path', type=str, default='./data')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
 					help='random seed (default: 1)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
@@ -65,26 +36,27 @@ parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
 parser.add_argument('-b', '--batch-size', default=1000, type=int,
 					metavar='N', help='mini-batch size (default: 1000)')
 
-parser.add_argument('--arch', default='convnet1', type=str)
-parser.add_argument('--bhs-r', default=[16, 16, 16], type=int, nargs='+', help='base hidden size for random NNs')
+parser.add_argument('--arch', default='convnet2', type=str)
+parser.add_argument('--bhs-r', default=[16, 16, 16], type=int, nargs='+',
+					help='base hidden size for random NNs')
 parser.add_argument('--w-var-r', default=2., type=float, help='w_var for random NNs')
 parser.add_argument('--b-var-r', default=0.01, type=float, help='b_var for random NNs')
 
-parser.add_argument('--bhs', default=[16, 32, 64], type=int, nargs='+', help='base hidden size for eigenfuncs')
-parser.add_argument('--k', default=3, type=int)
+parser.add_argument('--bhs', default=[32 64 128], type=int, nargs='+',
+					help='base hidden size for eigenfuncs')
+parser.add_argument('--k', default=10, type=int)
 parser.add_argument('--bs', default=256, type=int)
 parser.add_argument('--lr', default=1e-3, type=float)
 parser.add_argument('--optimizer-type', default='Adam', type=str)
 parser.add_argument('--num-iterations', default=20000, type=int)
-parser.add_argument('--num-samples', default=4000, type=int)
-parser.add_argument('--riemannian-projection', action='store_true')
-parser.add_argument('--max-grad-norm', default=None, type=float)
+parser.add_argument('--num-samples', default=2000, type=int)
 parser.add_argument('--momentum', default=0.9, type=float)
 
-parser.add_argument('--job-id', default='', type=str)
+parser.add_argument('--job-id', default='default', type=str)
 
 class NeuralEigenFunctions(nn.Module):
-	def __init__(self, k, arch, bhs, input_size, output_size=1, momentum=0.9, normalize_over=[0]):
+	def __init__(self, k, arch, bhs, input_size, output_size=1,
+				 momentum=0.9, normalize_over=[0]):
 		super(NeuralEigenFunctions, self).__init__()
 		self.momentum = momentum
 		self.normalize_over = normalize_over
@@ -98,12 +70,14 @@ class NeuralEigenFunctions(nn.Module):
 	def forward(self, x):
 		ret_raw = torch.cat([f(x) for f in self.functions], 1)
 		if self.training:
-			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
+			norm_ = ret_raw.norm(dim=self.normalize_over) / math.sqrt(
+				np.prod([ret_raw.shape[dim] for dim in self.normalize_over]))
 			with torch.no_grad():
 				if self.num_calls == 0:
 					self.eigennorm.copy_(norm_.data)
 				else:
-					self.eigennorm.mul_(self.momentum).add_(norm_.data, alpha = 1-self.momentum)
+					self.eigennorm.mul_(self.momentum).add_(
+						norm_.data, alpha = 1-self.momentum)
 				self.num_calls += 1
 		else:
 			norm_ = self.eigennorm
@@ -130,41 +104,14 @@ def main():
 	for x, y in train_loader:
 		X.append(x); Y.append(y)
 	X, Y = torch.cat(X).to(device), torch.cat(Y)
-	# print(X.shape, Y.shape, X.max(), X.min())
 
 	X_val, Y_val = [], []
 	for x, y in test_loader:
 		X_val.append(x); Y_val.append(y)
 	X_val, Y_val = torch.cat(X_val).to(device), torch.cat(Y_val)
 
-	# perform nystrom method on the nngp-kernel
-	# if args.arch == 'convnet1':
-	# 	kernel = ConvNetKernel('convnet1', [1, 28, 28], args.w_var_r, args.b_var_r).cuda()
-	# 	with torch.no_grad():
-	# 		_, eigenfuncs_nystrom, _ = nystrom(X[np.random.choice(X.shape[0], 800, replace=False)].contiguous(), args.k, kernel)
-	# 		X_projected_by_nystrom, X_val_projected_by_nystrom = [], []
-	# 		with torch.cuda.amp.autocast():
-	# 			for i in range(0, len(X), args.bs):
-	# 				X_projected_by_nystrom.append(eigenfuncs_nystrom(X[i: min(len(X), i+args.bs)]).cpu())
-	# 			for i in range(0, len(X_val), args.bs):
-	# 				X_val_projected_by_nystrom.append(eigenfuncs_nystrom(X_val[i: min(len(X_val), i+args.bs)]).cpu())
-	# 		X_projected_by_nystrom = torch.cat(X_projected_by_nystrom).float()
-	# 		X_val_projected_by_nystrom = torch.cat(X_val_projected_by_nystrom).float()
-	# 	clf = svm.LinearSVC()
-	# 	clf.fit(X_projected_by_nystrom, Y)
-	# 	print("Training acc of the l-svc for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
-	# 	print("Testing acc of the l-svc for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
-	# 	clf = SGDClassifier(loss='log')
-	# 	clf.fit(X_projected_by_nystrom, Y)
-	# 	print("Training acc of the lr for data projected by nystrom: {}".format(clf.score(X_projected_by_nystrom, Y)))
-	# 	print("Testing acc of the lr for data projected by nystrom: {}".format(clf.score(X_val_projected_by_nystrom, Y_val)))
-
+	# search for good hyperparameters for NyStrom method
 	for kernel in [partial(polynomial_kernel, 10, 0.001, 1), partial(rbf_kernel, 1, 100)]:
-	# for p1, p2 in itertools.product( [1], range(0, 1100,100)):
-		# p1 = 1 #p1 / 10000.  #/ 500. - 1.2
-		# p2 = p2 / 1000.
-		# kernel = partial(polynomial_kernel, 4, p1, p2)
-		# print(p1, p2)
 		try:
 			with torch.no_grad():
 				_, eigenfuncs_nystrom, _ = nystrom(X.cpu()[np.random.choice(X.shape[0], 6000, replace=False)].contiguous().contiguous(), args.k, kernel)
@@ -184,7 +131,7 @@ def main():
 		except:
 			pass
 
-	# perform our method
+	# perform NeuralEF
 	random_model = ConvNet(args.arch, args.bhs_r, input_size=[1, 28, 28], output_size=1).to(device)
 	num_params = sum(p.numel() for p in random_model.parameters())
 	print("Number of parameters:", num_params)
@@ -218,7 +165,8 @@ def main():
 		with torch.no_grad():
 			samples_batch_psis = samples_batch @ psis_X
 			psis_K_psis = samples_batch_psis.T @ samples_batch_psis / args.num_samples
-			mask = torch.eye(args.k, device=psis_X.device) - (psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T
+			mask = torch.eye(args.k, device=psis_X.device) - \
+				(psis_K_psis / psis_K_psis.diag()).tril(diagonal=-1).T
 			grad = samples_batch.T @ (samples_batch_psis @ mask / args.num_samples)
 
 			if eigenvalues_our is None:
@@ -226,14 +174,8 @@ def main():
 			else:
 				eigenvalues_our.mul_(0.9).add_(psis_K_psis.diag() / (args.bs**2), alpha = 0.1)
 
-			if args.riemannian_projection:
-				grad.sub_((psis_X*grad).sum(0) * psis_X / args.bs)
-
 			if ite % 50 == 0:
 				print(ite, grad.norm(dim=0))
-			if args.max_grad_norm is not None:
-				clip_coef = args.max_grad_norm / (grad.norm(dim=0) + 1e-6)
-				grad.mul_(clip_coef)
 
 		optimizer.zero_grad()
 		psis_X.backward(-grad)
@@ -280,11 +222,6 @@ def main():
 	print("Training acc of the lr: {}".format(clf.score(X_projected_by_our, Y)))
 	print("Testing acc of the lr: {}".format(clf.score(X_val_projected_by_our, Y_val)))
 
-	# this is too slow
-	# kernel = DotProduct() + WhiteKernel()
-	# gpc = GaussianProcessClassifier(kernel=kernel, random_state=args.seed).fit(X_projected_by_our*eigenvalues_our.sqrt(), Y)
-	# print("Training acc of the linear gpc: {}".format(gpr.score(X_projected_by_our*eigenvalues_our.sqrt(), Y)))
-	# print("Testing acc of the linear gpc: {}".format(gpr.score(X_val_projected_by_our*eigenvalues_our.sqrt(), Y_val)))
 
 if __name__ == '__main__':
 	main()

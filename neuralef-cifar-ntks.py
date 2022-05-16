@@ -1,37 +1,3 @@
-'''
-CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --classes 0 1 --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32  --ood-classes 8 9 --draw --resume auto (--nef-resume snapshots//resnet20-ntk-bs256-ip32/nef_checkpoint_199.th)
-	Clustering acc on in-dis. validation data 0.678
-	Clustering acc given clf features on in-dis. validation data 0.9895
-	Clustering acc given eigen projections on in-dis. validation data 0.9745
-	Clustering acc on ood validation data 0.504
-	Clustering acc given clf features on ood validation data 0.979
-	Clustering acc given eigen projections on ood validation data 0.795
-
-	cd tmp/; python plot.py
-
-
-CUDA_VISIBLE_DEVICES=7 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --job-id resnet20-ntk-bs256-ip32-10cls --ntk-std-scale 20 (--nef-resume snapshots/resnet20-ntk-bs256-ip32-10cls/nef_checkpoint_199.th --num-samples 1)
-	Test set: Average loss: 0.3567, Accuracy: 0.9193  ECE: 0.0487
-	Test set: Average loss: 0.2767, Accuracy: 0.9200  ECE: 0.0162
-	kron laplace: Test set: Average loss: 0.9060, Accuracy: 0.9149  ECE: 0.4683
-	diag laplace: Test set: Average loss: 0.9338, Accuracy: 0.9136  ECE: 0.4803
-	last-layer laplace: Test set: Average loss: 0.2642, Accuracy: 0.9186  ECE: 0.0255
-CUDA_VISIBLE_DEVICES=0 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet32 --job-id resnet32-ntk-bs256-ip32-10cls --ntk-std-scale 20
-	Test set: Average loss: 0.3696, Accuracy: 0.9205  ECE: 0.0515
-    Test set: Average loss: 0.2611, Accuracy: 0.9202  ECE: 0.0113
-CUDA_VISIBLE_DEVICES=3 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet56 --job-id resnet56-ntk-bs256-ip32-10cls --ntk-std-scale 20
-	Test set: Average loss: 0.3358, Accuracy: 0.9245  ECE: 0.0496
-    Test set: Average loss: 0.2342, Accuracy: 0.9238  ECE: 0.0118
-	kron laplace: Test set: Average loss: 1.5763, Accuracy: 0.9197  ECE: 0.7055
-	diag laplace: Test set: Average loss: 1.6059, Accuracy: 0.9191  ECE: 0.7116
-	last-layer laplace: Test set: Average loss: 0.2311, Accuracy: 0.9242  ECE: 0.0235
-CUDA_VISIBLE_DEVICES=4 python f-eigengame-ntk-cifar.py --nef-in-planes 32 --nef-batch-size 256 --nef-epochs 200 --nef-amp --clf-arch resnet110 --job-id resnet110-ntk-bs256-ip32-10cls --ntk-std-scale 20
-	Test set: Average loss: 0.3454, Accuracy: 0.9284  ECE: 0.0463
-    Test set: Average loss: 0.2404, Accuracy: 0.9273  ECE: 0.0088
-	kron laplace: Test set: Average loss: 1.7668, Accuracy: 0.9233  ECE: 0.7486
-	diag laplace: Test set: Average loss: 1.7970, Accuracy: 0.9227  ECE: 0.7535
-	last-layer laplace: Test set: Average loss: 0.2328, Accuracy: 0.9286  ECE: 0.0194
-'''
 import argparse
 import os
 import shutil
@@ -83,7 +49,7 @@ from utils import _ECELoss, time_string, convert_secs2time, dataset_with_indices
 from models.resnet import *
 from models.wide_resnet import *
 
-parser = argparse.ArgumentParser(description='SGD training on CIFAR')
+parser = argparse.ArgumentParser(description='NeuralEF for the NTKs on CIFAR')
 parser.add_argument('--dataset', default='cifar10', type=str,
 					help='dataset to use (default: cifar10)')
 parser.add_argument('--workers', default=8, type=int, metavar='N',
@@ -95,8 +61,8 @@ parser.add_argument('--save-dir', dest='save_dir',
 					default='./snapshots', type=str)
 parser.add_argument('--data-dir', dest='data_dir',
 					help='The directory saving the data',
-					default='/data/LargeData/Regular/cifar', type=str)
-parser.add_argument('--job-id', default='default-ntk', type=str)
+					default='./data', type=str)
+parser.add_argument('--job-id', default='default', type=str)
 
 # for specifying the classifier
 parser.add_argument('--epochs', default=20, type=int, metavar='N',
@@ -115,6 +81,7 @@ parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
 					metavar='W', help='weight decay (default: 1e-4)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
 					help='path to latest checkpoint (default: none)')
+
 parser.add_argument('--clf-arch', type=str, default='resnet20')
 parser.add_argument('--clf-in-planes', type=int, default=16)
 parser.add_argument('--classes', default=None, type=int, nargs='+')
@@ -125,26 +92,21 @@ parser.add_argument('--num-samples', default=4000, type=int)
 parser.add_argument('--random-dist-type', default='rademacher', type=str)
 parser.add_argument('--epsilon', default=1e-5, type=float, help='epsilon')
 parser.add_argument('--nef-resume', default='', type=str)
-parser.add_argument('--nef-batch-size', default=128, type=int)
+parser.add_argument('--nef-batch-size', default=256, type=int)
 parser.add_argument('--nef-arch', type=str, default='resnet20')
-parser.add_argument('--nef-in-planes', type=int, default=16)
+parser.add_argument('--nef-in-planes', type=int, default=32)
 parser.add_argument('--nef-k', default=10, type=int)
 parser.add_argument('--nef-lr', default=1e-3, type=float)
 parser.add_argument('--nef-momentum', default=0.9, type=float)
 parser.add_argument('--nef-optimizer-type', default='Adam', type=str)
-parser.add_argument('--nef-epochs', default=100, type=int)
-parser.add_argument('--nef-riemannian-projection', action='store_true')
-parser.add_argument('--nef-max-grad-norm', default=None, type=float)
+parser.add_argument('--nef-epochs', default=200, type=int)
 parser.add_argument('--nef-num-samples-eval', default=256, type=int)
 parser.add_argument('--nef-no-bn', action='store_true')
 parser.add_argument('--nef-share', action='store_true')
 parser.add_argument('--nef-amp', action='store_true')
-parser.add_argument('--draw', action='store_true')
-parser.add_argument('--delta', default=5, type=float, help='delta') # # of data * weight_decay = 50000 * 1e-4 = 5
+parser.add_argument('--delta', default=5, type=float, help='delta') # of data * weight_decay = 50000 * 1e-4 = 5
 parser.add_argument('--ntk-std-scale', default=1, type=float)
 
-parser.add_argument('--subset_of_weights', default='all', type=str)
-parser.add_argument('--hessian_structure', default='kron', type=str)
 
 
 def main():
@@ -191,7 +153,7 @@ def main():
 	num_params = sum(p.numel() for p in classifier.parameters())
 	print("Number of parameters:", num_params)
 	validate(args, val_loader, classifier)
-	# kfac_laplace_validate(args, val_loader, classifier)
+
 
 	Jacobian, Jacobian_val = get_ground_truth_ntk(args, classifier, nef_train_val_loader, val_loader)
 
@@ -224,56 +186,8 @@ def main():
 			args, nef, NTK_samples, nef_train_loader,
 			args.nef_k, args.nef_epochs, args.nef_optimizer_type,
 			args.nef_lr, args.nef_momentum,
-			args.nef_riemannian_projection,
-			args.nef_max_grad_norm, args.nef_amp,
+			args.nef_amp,
 			nef_train_val_loader, val_loader, ground_truth_NTK_val)
-
-	if args.draw:
-		perm = torch.randperm(ground_truth_NTK.size()[0])
-		Jacobian_sub = Jacobian[perm][:128]
-		K_sub = ground_truth_NTK[perm]
-		K_sub = K_sub[:, perm]
-		K_sub = K_sub[:128, :128]
-
-		p, q = scipy.linalg.eigh(K_sub.data.cpu().numpy(), subset_by_index=[K_sub.shape[0]-args.nef_k, K_sub.shape[0]-1]) #
-		eigenval_nystrom = torch.from_numpy(p).to(K_sub.device).float()[range(-1, -(args.nef_k+1), -1)] / K_sub.shape[0]
-		eigenvec_nystrom = torch.from_numpy(q).to(K_sub.device).float()[:, range(-1, -(args.nef_k+1), -1)] / math.sqrt(K_sub.shape[0])
-		#eigenfuncs_nystrom = lambda x: kernel(x, X) @ eigenvec_nystrom / eigenval_nystrom
-
-		val_proj_nystrom = Jacobian_val @ Jacobian_sub.T @ eigenvec_nystrom / eigenval_nystrom.sqrt()
-		NTK_val_nystrom = (val_proj_nystrom @ val_proj_nystrom.T).cpu()
-		print(NTK_val_nystrom[:5,:5], ground_truth_NTK_val[:5, :5])
-
-		draw_eigenvalues(args, eigenvalues, ground_truth_NTK, eigenval_nystrom)
-
-		nef.eval()
-		with torch.no_grad():
-			nef_output = torch.cat([nef(data.cuda()) for (data, _) in val_loader]) * eigenvalues.sqrt()
-			NTK_val_our = (nef_output[:ground_truth_NTK_val.shape[0]] @ nef_output[:ground_truth_NTK_val.shape[0]].T).cpu()
-
-			all_images = torch.cat([images.cuda(non_blocking=True) for images, _ in val_loader])
-			logits = logit(all_images, classifier, args)
-			new_classifier = copy.deepcopy(classifier)
-			NTK_samples_val = []
-			for i in tqdm(range(10),
-						  desc = 'Sampling from the NTK kernel on validation data'):
-				for p, p_ in zip(new_classifier.parameters(), classifier.parameters()):
-					if args.random_dist_type == 'normal':
-						perturbation = torch.randn_like(p) * args.epsilon #/ math.sqrt(num_params)
-					elif args.random_dist_type == 'rademacher':
-						perturbation = torch.randn_like(p).sign() * args.epsilon #/ math.sqrt(num_params)
-					else:
-						raise NotImplementedError
-					p.data.copy_(p_.data).add_(perturbation)
-				new_logits = logit(all_images, new_classifier, args)
-				NTK_samples_val.append(((new_logits - logits) / args.epsilon).cpu())
-			NTK_samples_val = torch.stack(NTK_samples_val, 0).flatten(1)
-			NTK_samples_val /= math.sqrt(scale_ * NTK_samples_val.shape[0])
-			NTK_val_MC = NTK_samples_val.T @ NTK_samples_val
-
-			diag = ground_truth_NTK_val.diagonal().rsqrt().diag_embed().numpy()
-			draw_kernel(args, [ground_truth_NTK_val.numpy(), NTK_val_nystrom.numpy(), NTK_val_our.numpy(), NTK_val_MC.numpy(),], diag,
-						['Ground truth', 'The Nyström method', 'Our ($k=10$)', 'Random feature approach ($S=10$)', ], 'last')
 
 	if args.num_classes == 2:
 		clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, NTK_samples_val, val_proj_nystrom)
@@ -282,8 +196,8 @@ def main():
 
 def train_nef(args, nef, collected_samples, train_loader,
 			  k, epochs, optimizer_type, lr,
-			  momentum, riemannian_projection,
-			  max_grad_norm, amp, nef_train_val_loader, val_loader, ground_truth_NTK_val):
+			  momentum,
+			  amp, nef_train_val_loader, val_loader, ground_truth_NTK_val):
 
 	num_samples = collected_samples.shape[0]
 	print(collected_samples.shape) # 4000*(50000*num_classes)
@@ -324,7 +238,8 @@ def train_nef(args, nef, collected_samples, train_loader,
 		nef.train()
 		for i, (data, _, indices) in enumerate(train_loader):
 
-			samples_batch = collected_samples.view(num_samples, -1, args.num_classes if args.num_classes != 2 else 1)[:, indices].flatten(1).cuda(non_blocking=True)
+			samples_batch = collected_samples.view(num_samples, -1,
+				args.num_classes if args.num_classes != 2 else 1)[:, indices].flatten(1).cuda(non_blocking=True)
 			with amp_autocast():
 				psis_X = nef(data.cuda())
 
@@ -343,12 +258,6 @@ def train_nef(args, nef, collected_samples, train_loader,
 					eigenvalues = cur_eigenvalues
 				else:
 					eigenvalues.mul_(0.9).add_(cur_eigenvalues, alpha = 0.1)
-
-				if riemannian_projection:
-					grad.sub_((psis_X*grad).sum(0) * psis_X / data.shape[0])
-				if max_grad_norm is not None:
-					clip_coef = max_grad_norm / (grad.norm(dim=0) + 1e-6)
-					grad.mul_(clip_coef)
 
 			optimizer.zero_grad()
 			if loss_scaler is not None:
@@ -501,11 +410,6 @@ def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, N
 		val_eigen_projections = (torch.cat([nef(data.cuda()) for (data, _) in val_loader]).cpu() * eigenvalues.sqrt().cpu()).view(val_data.shape[0], -1)
 		val_labels = torch.cat([label for (_, label) in val_loader])
 
-		# val_ood_data = torch.cat([data.flatten(1) for (data, _) in val_loader_ood])
-		# val_ood_clf_features = torch.cat([classifier(data.cuda(), True) for (data, _) in val_loader_ood]).cpu()
-		# val_ood_eigen_projections = (torch.cat([nef(data.cuda()) for (data, _) in val_loader_ood]).cpu() * eigenvalues.sqrt().cpu()).view(val_data.shape[0], -1)
-		# val_ood_labels = torch.cat([label for (_, label) in val_loader_ood])
-
 	assignment = KMeans(len(args.classes)).fit_predict(val_data)
 	preds = assignment2pred(assignment, val_labels, len(args.classes))
 	print("Clustering acc on in-dis. validation data", (preds==val_labels.numpy()).astype(np.float32).mean())
@@ -526,17 +430,6 @@ def clustering(args, classifier, nef, eigenvalues, val_loader, val_loader_ood, N
 	preds = assignment2pred(assignment, val_labels, len(args.classes))
 	print("Clustering acc given random features on in-dis. validation data", (preds==val_labels.numpy()).astype(np.float32).mean())
 
-	# assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_data)
-	# preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
-	# print("Clustering acc on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
-	#
-	# assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_clf_features)
-	# preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
-	# print("Clustering acc given clf features on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
-	#
-	# assignment = KMeans(len(args.ood_classes)).fit_predict(val_ood_eigen_projections)
-	# preds = assignment2pred(assignment, val_ood_labels, len(args.ood_classes))
-	# print("Clustering acc given eigen projections on ood validation data", (preds==val_ood_labels.numpy()).astype(np.float32).mean())
 
 def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loader):
 	nef.eval()
@@ -556,7 +449,6 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 				# break
 		EXT_LambdaX_EX.diagonal().add_(args.delta)
 		K_X_inv = EXT_LambdaX_EX.inverse()
-	# print(K_X_inv[:5, :5], EXT_LambdaX_EX[:5, :5])
 
 	# test on in-distribution data
 	test_loss, correct, test_loss_ntkunc, correct_ntkunc = 0, 0, 0, 0
@@ -640,8 +532,6 @@ def ntkgp_validate(args, classifier, nef, eigenvalues, nef_train_loader, val_loa
 
 	uncs_ood, uconfs_ood, confs_ood, ents_ood = torch.cat(uncs_ood), torch.cat(uconfs_ood), torch.cat(confs_ood), torch.cat(ents_ood)
 	uncs_ood[torch.isnan(uncs_ood)] = uncs_ood[~torch.isnan(uncs_ood)].min()
-	# uncs_ood[torch.isneginf(uncs_ood)] = uncs_ood[~torch.isneginf(uncs_ood)].min()
-	# print(uncs_ood.max(), uncs_ood.min(), confs_ood.max(), confs_ood.min(), ents_ood.max(), ents_ood.min())
 
 	binary_classification_given_uncertainty(uncs,uncs_ood, 'cifar_plots/ntk/{}/id_vs_ood_ntkunc_ent.pdf'.format(args.clf_arch))
 	binary_classification_given_uncertainty(uconfs,uconfs_ood, 'cifar_plots/ntk/{}/id_vs_ood_ntkunc_conf.pdf'.format(args.clf_arch))
@@ -783,89 +673,6 @@ def validate(args, val_loader, classifier, verbose=True):
 		print('\tTest set: Average loss: {:.4f}, Accuracy: {:.4f}'.format(test_loss, top1))
 	return test_loss, top1
 
-def kfac_laplace_validate(args, val_loader, classifier, verbose=True):
-	if args.num_classes == 2:
-		exit(1)
-
-	from laplace import Laplace
-	from laplace.curvature import AsdlGGN
-
-	if args.dataset == 'cifar10':
-		mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
-		dataset = torchvision.datasets.CIFAR10
-	elif args.dataset == 'cifar100':
-		mean, std = [x / 255 for x in [129.3, 124.1, 112.4]], [x / 255 for x in [68.2, 65.4, 70.4]]
-		dataset = torchvision.datasets.CIFAR100
-	normalize = transforms.Normalize(mean=mean, std=std)
-	train_dataset = dataset(root=args.data_dir, train=True,
-		transform=transforms.Compose([
-			transforms.ToTensor(),
-			normalize,
-		]), download=True)
-	train_loader = torch.utils.data.DataLoader(
-		train_dataset,
-		batch_size=args.batch_size, shuffle=True,
-		num_workers=args.workers, pin_memory=True)
-
-	la = Laplace(classifier, 'classification',
-	             subset_of_weights=args.subset_of_weights,
-	             hessian_structure=args.hessian_structure, backend=AsdlGGN)
-	la.fit(train_loader)
-	la.optimize_prior_precision(method='marglik')
-
-	test_loss, correct = 0, 0
-	labels, probs, ents, confs = [], [], [], []
-	with torch.no_grad():
-		for data, target in val_loader:
-			data = data.cuda(non_blocking=True)
-			with torch.cuda.amp.autocast():
-				prob = la(data).float().cpu()
-
-			labels.append(target)
-			probs.append(prob)
-			ents.append(ent(prob))
-			confs.append(prob.max(-1)[0])
-			test_loss += F.cross_entropy(prob.log(), target).item() * target.size(0)
-			correct += prob.argmax(dim=1).eq(target).sum().item()
-
-	test_loss /= len(val_loader.dataset)
-	top1 = float(correct) / len(val_loader.dataset)
-
-	labels, probs, ents, confs = torch.cat(labels), torch.cat(probs), torch.cat(ents), torch.cat(confs)
-	confidences, predictions = torch.max(probs, 1)
-
-	ece_func = _ECELoss() #.cuda()
-	ece = ece_func(confidences, predictions, labels,
-				   title='cifar_plots/ntk/{}/ece_laplace_{}_{}.pdf'.format(args.clf_arch, args.subset_of_weights, args.hessian_structure)).item()
-
-	print('\tTest set: Average loss: {:.4f},'
-	      ' Accuracy: {:.4f}  ECE: {:.4f}'.format(test_loss, top1, ece))
-
-	# test on out-of-distribution data
-	ood_loader = torch.utils.data.DataLoader(
-		torchvision.datasets.SVHN(root='/data/LargeData/Regular/svhn', split='test',
-		transform=transforms.Compose([
-			transforms.ToTensor(),
-			normalize,
-		]), download=True),
-		batch_size=args.batch_size, shuffle=False,
-		num_workers=args.workers, pin_memory=True)
-
-	confs_ood, ents_ood = [], []
-	with torch.no_grad():
-		for x, _ in ood_loader:
-			x = x.cuda(non_blocking=True)
-			with torch.cuda.amp.autocast():
-				prob = la(x).float().cpu()
-			ents_ood.append(ent(prob))
-			confs_ood.append(prob.max(-1)[0])
-
-	confs_ood, ents_ood = torch.cat(confs_ood), torch.cat(ents_ood)
-
-	binary_classification_given_uncertainty(confs,confs_ood, 'cifar_plots/ntk/{}/id_vs_ood_conf_laplace_{}_{}.pdf'.format(args.clf_arch, args.subset_of_weights, args.hessian_structure), reverse=True)
-	binary_classification_given_uncertainty(ents,ents_ood, 'cifar_plots/ntk/{}/id_vs_ood_ent_laplace_{}_{}.pdf'.format(args.clf_arch, args.subset_of_weights, args.hessian_structure))
-
-	return test_loss, top1
 
 def load_cifar(args):
 	if args.dataset == 'cifar10':
@@ -945,106 +752,6 @@ def load_cifar(args):
 		num_workers=args.workers, pin_memory=True)
 
 	return train_loader, nef_train_loader, nef_train_val_loader, val_loader, val_loader_ood
-
-def draw_eigenvalues(args, eigenval_our, ground_truth_NTK, eigenval_nystrom):
-	from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
-	from mpl_toolkits.axes_grid1.inset_locator import mark_inset
-
-
-	# num_samples = collected_samples.shape[0]
-	k = args.nef_k
-	K = ground_truth_NTK
-	# eigenval_gd, eigenvec_gd = torch.symeig(K[:1000, :1000], eigenvectors=True)
-	eigenval_gd = torch.symeig(K, eigenvectors=False)[0]
-	eigenval_gd = eigenval_gd[range(len(eigenval_gd)-1, -1, -1)] / K.shape[1]
-	# projection_gd = eigenvec_gd[:, range(-1, -(k+1), -1)] * math.sqrt(collected_samples.shape[1]) * eigenval_gd[:k].sqrt()
-	# print(torch.dist(K, projection_gd @ projection_gd.T))
-	print('Ground truth top 10 eigenvalues', eigenval_gd[:10].data.cpu().numpy())
-
-	fig = plt.figure(figsize=(7, 5))
-	ax = fig.add_subplot(111)
-	ax.tick_params(axis='y', which='major', labelsize=12)
-	ax.tick_params(axis='y', which='minor', labelsize=12)
-	ax.tick_params(axis='x', which='major', labelsize=12)
-	ax.tick_params(axis='x', which='minor', labelsize=12)
-
-	sns.color_palette()
-
-	np.savez('tmp/eigenvals.npz', gd=eigenval_gd[:2048].data.cpu().numpy(), ny=eigenval_nystrom.data.cpu().numpy(), our=eigenval_our.data.cpu().numpy())
-	ax.plot(list(range(len(eigenval_gd[:2048]))), eigenval_gd[:2048].data.cpu().numpy(), alpha=1, marker='o', markersize=2, label='Ground truth')
-	ax.plot(list(range(len(eigenval_nystrom))), eigenval_nystrom.data.cpu().numpy(), '--*', markersize=5, label='The Nyström method')
-	ax.plot(list(range(len(eigenval_our))), eigenval_our.data.cpu().numpy(), ':v', markersize=3, label='Our')
-	ax.set_yscale('log')
-	ax.set_xlabel('$i$-th eigenvalue', fontsize=16)
-	# ax.set_ylabel('Value', fontsize=16)
-
-	ax.spines['bottom'].set_color('gray')
-	ax.spines['top'].set_color('gray')
-	ax.spines['right'].set_color('gray')
-	ax.spines['left'].set_color('gray')
-	ax.set_axisbelow(True)
-
-	axins = ax.inset_axes([0.28, 0.28, 0.7, 0.7]) # zoom = 6
-	axins.plot(np.array(list(range(10))) + 0.05, eigenval_gd[:10].data.cpu().numpy() + 0.002, marker='o', markersize=5)
-	axins.plot(np.array(list(range(10))) + 0.05, eigenval_nystrom[:10].data.cpu().numpy() + 0.002, '--*', markersize=6)
-	axins.plot(np.array(list(range(10))) + 0.05, eigenval_our[:10].data.cpu().numpy() + 0.002, ':v', markersize=6)
-	# sub region of the original image
-	x1, x2, y1, y2 = 0, 9.5, 0.008, 0.33
-	# axins.set_yscale('log')
-	axins.set_xlim(x1, x2)
-	axins.set_ylim(y1, y2)
-	axins.tick_params(axis='x', labelsize= 8)
-	axins.tick_params(axis='y', labelsize= 8)
-	axins.set_xticks(range(10))
-	axins.set_xticks(range(10), minor=True)
-	axins.set_yticks([0.01, 0.1, 0.2, 0.3])
-	axins.set_yticks([0.01, 0.1, 0.2, 0.3], minor=True)
-
-	# draw a bbox of the region of the inset axes in the parent axes and
-	# connecting lines between the bbox and the inset axes area
-	mark_inset(ax, axins, loc1=2, loc2=3, fc="none", ec="0.5")
-
-	ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.14),
-          ncol=3, fancybox=True, shadow=True, fontsize=13)
-
-	fig.tight_layout()
-	fig.savefig(os.path.join(args.save_dir, 'eigenvalues_{}.pdf'.format(args.nef_k)), format='pdf', dpi=1000, bbox_inches='tight')
-
-def draw_kernel(args, kernels, diag, labels, epoch):
-	ma = 1
-	mi = -1
-
-	to_save = []
-	fig = plt.figure(figsize=(5*len(kernels), 5))
-	perm = np.random.permutation(kernels[0].shape[0])[:128]
-	for i, (k, l) in enumerate(zip(kernels, labels)):
-		ax = fig.add_subplot(100 + 10 * len(kernels) + i + 1)
-		# diag = np.diag(1. / np.sqrt(np.diag(k)))
-		k = diag @ k @ diag
-		im = ax.imshow(k[perm][:, perm], cmap='seismic', vmin=mi, vmax=ma)
-		to_save.append(k[perm][:, perm])
-		ax.set_xlabel('')
-		ax.set_ylabel('')
-		ax.set_title(l)
-
-		ax.set_xticks([])
-		ax.set_xticks([], minor=True)
-		ax.set_yticks([])
-		ax.set_yticks([], minor=True)
-
-		# if i == len(kernels) - 1:
-		# 	divider = make_axes_locatable(ax)
-		# 	cax = divider.append_axes("right", size="5%", pad=0.1)
-		# 	fig.colorbar(im, cax=cax, format='%0.1f')
-
-	fig.subplots_adjust(right=0.95)
-	cbar_ax = fig.add_axes([0.98, 0.15, 0.01, 0.7])
-	fig.colorbar(im, cax=cbar_ax)
-
-	to_save = np.stack(to_save)
-	np.savez('tmp/reconks.npz', k=to_save)
-	fig.tight_layout()
-	fig.savefig(os.path.join(args.save_dir, 'kernels_{}_{}.pdf'.format(args.nef_k, epoch)), format='pdf', dpi=1000, bbox_inches='tight')
 
 def assignment2pred(assignment, labels, num_classes):
 	m = {}
