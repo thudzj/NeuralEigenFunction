@@ -26,7 +26,8 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from spectral_inference_networks.src import util
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior() 
 from tensorflow.python.ops import parallel_for as pfor  # pylint: disable=g-direct-tensorflow-import
 
 assert util, ('spectral_inference_networks.src.util must be imported.')

@@ -17,7 +17,8 @@ import seaborn as sns
 import random
 import numpy as np
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 import spectral_inference_networks as spin
 
 import torch
@@ -164,7 +165,7 @@ def spin_tf(X, X_val, k, kernel_type):
 	end = timer()
 	return outputs, end - start
 
-def plot_efs(ax, X_val, eigenfuncs_eval_list, label_list, linestyle_list,
+def plot_efs(ax, X_val, eigenfuncs_eval_list, label_list, color_list, linestyle_list,
 			 k_lines=3, xlim=[-2., 2.], ylim=[-2., 2.]):
 
 	ax.tick_params(axis='y', which='major', labelsize=12)
@@ -174,12 +175,12 @@ def plot_efs(ax, X_val, eigenfuncs_eval_list, label_list, linestyle_list,
 
 	sns.color_palette()
 	for iii, eigenfuncs_eval in enumerate(eigenfuncs_eval_list):
-		plt.gca().set_prop_cycle(None)
+		# plt.gca().set_prop_cycle(None)
 		for i in range(k_lines):
 			data = eigenfuncs_eval[:, i] \
 				if eigenfuncs_eval[1300:1400, i].mean() > 0 else -eigenfuncs_eval[:, i]
-			ax.plot(X_val.view(-1), data, linestyle=linestyle_list[iii],
-					label=label_list[iii].format(i+1))
+			ax.plot(X_val.view(-1), data, c=color_list[iii], linestyle=linestyle_list[iii],
+					label=label_list[iii], linewidth=1.5) #.format(i+1)
 
 	ax.set_xlabel('x')
 	ax.set_ylabel('y')
@@ -212,11 +213,11 @@ def main():
 	for kernel_type in ['rbf', 'polynomial']:
 		if kernel_type == 'rbf':
 			kernel = partial(rbf_kernel, 1, 1)
-			ylim = [-2., 2.]
+			ylim = [-1.8, 1.5]
 		elif kernel_type == 'polynomial':
 			kernel = partial(polynomial_kernel, 4, 1, 1.5)
 			x_range = [-1., 1.]
-			ylim = [-3., 3.]
+			ylim = [-2.2, 2.]
 		else:
 			raise NotImplementedError
 
@@ -255,27 +256,33 @@ def main():
 			projections_spin_list.append(projections_spin)
 			cost_spin_list.append(c)
 
-		label_list = ['$\hat\psi_{}$ (Nyström)', '$\hat\psi_{}$ (SpIN)', '$\hat\psi_{}$ (our)']
-		linestyle_list = ['solid', 'dotted', 'dashdot']
+		#['$\hat\psi_{}$ (Nyström)', '$\hat\psi_{}$ (SpIN)', '$\hat\psi_{}$ (our)']
+		label_list = ['Nyström', 'SpIN', 'Our']
+
+		linestyle_list = ['solid', 'dashdot', 'dotted']
+		color_list = ['orange', 'c', 'blue']
 		# plots
-		fig = plt.figure(figsize=(5*len(NS) + 5, 4))
+		fig = plt.figure(figsize=(5*len(NS) + 5, 4.5))
 		ax = fig.add_subplot(141)
 		plot_efs(ax, X_val,
 				 [projections_nystrom_list[0], projections_spin_list[0], projections_our_list[0]],
-				 label_list, linestyle_list,
+				 label_list, color_list, linestyle_list,
 				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			# ax.legend(ncol=3, columnspacing=1.2, handletextpad=0.5)
-			ax.text(-1.5, -2.7, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=16)
+			ax.text(-1.5, -1.6, '$\\kappa(x, x\')=(x^\\top x\' + 1.5)^4$', rotation=90, fontsize=16)
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[0]), pad=20)
 		else:
-			ax.text(-3.1, -2.3, '$\\kappa(x, x\')=exp(-||x - x\'||^2/2)$', rotation=90, fontsize=16)
+			ax.text(-3.1, -1.7, '$\\kappa(x, x\')=exp(-||x - x\'||^2/2)$', rotation=90, fontsize=16)
 			ax.set_title(' ', pad=20)
+		if kernel_type != 'rbf':
+			handles, labels = ax.get_legend_handles_labels()
+			ax.legend([handles[0], handles[3], handles[6]], [labels[0], labels[3], labels[6]])
 
 		ax = fig.add_subplot(142)
 		plot_efs(ax, X_val,
 				 [projections_nystrom_list[1], projections_spin_list[1], projections_our_list[1]],
-				 label_list, linestyle_list,
+				 label_list, color_list, linestyle_list,
 				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[1]), pad=20)
@@ -286,22 +293,22 @@ def main():
 		ax = fig.add_subplot(143)
 		plot_efs(ax, X_val,
 				 [projections_nystrom_list[2], projections_spin_list[2], projections_our_list[2]],
-				 label_list, linestyle_list,
+				 label_list, color_list, linestyle_list,
 				 3, x_range, ylim)
 		if kernel_type != 'rbf':
 			ax.set_title('Eigenfunction comparison ({} samples)'.format(NS[2]), pad=20)
 		else:
 			ax.set_title(' ', pad=20)
-		handles, labels = ax.get_legend_handles_labels()
+		# handles, labels = ax.get_legend_handles_labels()
 
 		ax = fig.add_subplot(144)
 		ax.tick_params(axis='y', which='major', labelsize=12)
 		ax.tick_params(axis='y', which='minor', labelsize=12)
 		ax.tick_params(axis='x', which='major', labelsize=12)
 		ax.tick_params(axis='x', which='minor', labelsize=12)
-		ax.plot(range(1, len(NS) + 1), cost_nystrom_list, label='Nyström', color='k')
-		ax.plot(range(1, len(NS) + 1), cost_spin_list, label='SpIN', linestyle='dotted', color='k')
-		ax.plot(range(1, len(NS) + 1), cost_our_list, label='Our', linestyle='dashdot', color='k')
+		ax.plot(range(1, len(NS) + 1), cost_nystrom_list, label='Nyström', linestyle=linestyle_list[0], color=color_list[0], linewidth=1.5)
+		ax.plot(range(1, len(NS) + 1), cost_spin_list, label='SpIN', linestyle=linestyle_list[1], color=color_list[1], linewidth=1.5)
+		ax.plot(range(1, len(NS) + 1), cost_our_list, label='Our', linestyle=linestyle_list[2], color=color_list[2], linewidth=1.5)
 		ax.set_xlim(1, len(NS) + 0.2)
 		ax.set_xticks(range(1, len(NS) + 1))
 		ax.set_xticklabels(NS)
@@ -314,16 +321,16 @@ def main():
 		ax.set_axisbelow(True)
 		ax.grid(axis='y', color='lightgray', linestyle='--')
 		ax.grid(axis='x', color='lightgray', linestyle='--')
-		ax.legend()
+		# ax.legend()
 		if kernel_type != 'rbf':
 			ax.set_title('Training time comparison', pad=20)
 		else:
 			ax.set_title(' ', pad=20)
 
 		if kernel_type == 'rbf':
-			fig.legend(handles, labels, loc='lower center',
-					   bbox_to_anchor=(0.5, -0.08), ncol=9,
-					   fancybox=True, shadow=True, prop={'size':16})
+			# fig.legend(handles, labels, loc='lower center',
+			# 		   bbox_to_anchor=(0.5, -0.08), ncol=9,
+			# 		   fancybox=True, shadow=True, prop={'size':16})
 			fig.tight_layout()
 			fig.savefig('toy_plots/eigen_funcs_comp_{}.pdf'.format(kernel_type),
 						format='pdf', dpi=1000, bbox_inches='tight')

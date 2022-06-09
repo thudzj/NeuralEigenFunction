@@ -17,7 +17,8 @@ import seaborn as sns
 import random
 import numpy as np
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior() 
 import spectral_inference_networks as spin
 
 import torch
