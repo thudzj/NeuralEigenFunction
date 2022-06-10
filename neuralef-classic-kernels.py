@@ -180,7 +180,7 @@ def plot_efs(ax, X_val, eigenfuncs_eval_list, label_list, color_list, linestyle_
 			data = eigenfuncs_eval[:, i] \
 				if eigenfuncs_eval[1300:1400, i].mean() > 0 else -eigenfuncs_eval[:, i]
 			ax.plot(X_val.view(-1), data, c=color_list[iii], linestyle=linestyle_list[iii],
-					label=label_list[iii], linewidth=1.5) #.format(i+1)
+					label=label_list[iii], linewidth=2) #.format(i+1)
 
 	ax.set_xlabel('x')
 	ax.set_ylabel('y')
@@ -251,6 +251,7 @@ def main():
 
 		for X in XS:
 			projections_spin, c = spin_tf(X, X_val, k, kernel_type)
+			projections_spin, c = spin_tf(X, X_val, k, kernel_type)
 			if kernel_type == 'polynomial' and X.shape[0] == 64:
 				projections_spin = - projections_spin
 			projections_spin_list.append(projections_spin)
@@ -306,9 +307,9 @@ def main():
 		ax.tick_params(axis='y', which='minor', labelsize=12)
 		ax.tick_params(axis='x', which='major', labelsize=12)
 		ax.tick_params(axis='x', which='minor', labelsize=12)
-		ax.plot(range(1, len(NS) + 1), cost_nystrom_list, label='Nyström', linestyle=linestyle_list[0], color=color_list[0], linewidth=1.5)
-		ax.plot(range(1, len(NS) + 1), cost_spin_list, label='SpIN', linestyle=linestyle_list[1], color=color_list[1], linewidth=1.5)
-		ax.plot(range(1, len(NS) + 1), cost_our_list, label='Our', linestyle=linestyle_list[2], color=color_list[2], linewidth=1.5)
+		ax.plot(range(1, len(NS) + 1), cost_nystrom_list, label='Nyström', linestyle=linestyle_list[0], color=color_list[0], linewidth=2)
+		ax.plot(range(1, len(NS) + 1), cost_spin_list, label='SpIN', linestyle=linestyle_list[1], color=color_list[1], linewidth=2)
+		ax.plot(range(1, len(NS) + 1), cost_our_list, label='Our', linestyle=linestyle_list[2], color=color_list[2], linewidth=2)
 		ax.set_xlim(1, len(NS) + 0.2)
 		ax.set_xticks(range(1, len(NS) + 1))
 		ax.set_xticklabels(NS)
